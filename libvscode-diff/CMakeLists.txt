@@ -231,27 +231,29 @@ message(STATUS "Generating standalone build scripts...")
 # Determine script output directory (repository root)
 set(SCRIPT_OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-# Generate build.sh for Unix/Linux/macOS using configure_file
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/build.sh.in
-    ${SCRIPT_OUTPUT_DIR}/build.sh
-    @ONLY
-)
+if(WIN32)
+    # Generate build.cmd for Windows only
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/build.cmd.in
+        ${SCRIPT_OUTPUT_DIR}/build.cmd
+        @ONLY
+    )
+    message(STATUS "✓ Generated: ../build.cmd")
+else()
+    # Generate build.sh for Unix/Linux/macOS only
+    configure_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/build.sh.in
+        ${SCRIPT_OUTPUT_DIR}/build.sh
+        @ONLY
+    )
+    
+    # Make build.sh executable
+    file(CHMOD ${SCRIPT_OUTPUT_DIR}/build.sh
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                    GROUP_READ GROUP_EXECUTE
+                    WORLD_READ WORLD_EXECUTE)
+    message(STATUS "✓ Generated: ../build.sh")
+endif()
 
-# Make build.sh executable
-file(CHMOD ${SCRIPT_OUTPUT_DIR}/build.sh
-    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
-                GROUP_READ GROUP_EXECUTE
-                WORLD_READ WORLD_EXECUTE)
-
-# Generate build.cmd for Windows using configure_file
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/build.cmd.in
-    ${SCRIPT_OUTPUT_DIR}/build.cmd
-    @ONLY
-)
-
-message(STATUS "✓ Generated: ../build.sh")
-message(STATUS "✓ Generated: ../build.cmd")
 message(STATUS "  Users can now build without CMake using these scripts at repository root")
 

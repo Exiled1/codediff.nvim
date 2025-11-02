@@ -18,12 +18,12 @@ else
 fi
 
 echo "Building vscode_diff (standalone mode)..."
-echo "Compiler: C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
+echo "Compiler: /usr/bin/cc"
 echo "Platform: $PLATFORM"
 
 # Compiler and flags from CMake configuration
-CC="C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
-CFLAGS="/DWIN32 /D_WINDOWS /W3 /O2 /DNDEBUG -Iinclude -Ivendor -fPIC"
+CC="/usr/bin/cc"
+CFLAGS=" -Wall -Wextra -O2 -DNDEBUG -Iinclude -Ivendor -fPIC"
 LDFLAGS="-shared -lm"
 
 # Source files (including bundled utf8proc)
