@@ -9,8 +9,13 @@ local api = vim.api
 -- Create a fugitive-style URL for a git revision
 -- Format: vscodediff:///<git-root>///<commit>/<filepath>
 function M.create_url(git_root, commit, filepath)
-  -- Encode components to handle special characters
-  local encoded_root = vim.fn.fnamemodify(git_root, ':p'):gsub('/$', '')
+  -- Normalize and encode components
+  local encoded_root = vim.fn.fnamemodify(git_root, ':p')
+  -- Remove trailing slashes (both / and \)
+  encoded_root = encoded_root:gsub('[/\\]$', '')
+  -- Normalize to forward slashes
+  encoded_root = encoded_root:gsub('\\', '/')
+  
   local encoded_commit = commit or 'HEAD'
   local encoded_path = filepath:gsub('^/', '')
   
@@ -51,11 +56,10 @@ function M.setup()
       vim.bo[buf].buftype = 'nowrite'
       vim.bo[buf].bufhidden = 'wipe'  -- Auto-delete when hidden
       
-      -- Get the file content from git
+      -- Get the file content from git using explicit git_root
       local git = require('vscode-diff.git')
-      local full_path = git_root .. '/' .. filepath
       
-      git.get_file_at_revision(commit, full_path, function(err, lines)
+      git.get_file_at_revision_with_root(commit, git_root, filepath, function(err, lines)
         vim.schedule(function()
           if err then
             -- Set error message in buffer

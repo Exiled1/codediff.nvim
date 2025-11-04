@@ -80,6 +80,8 @@ end
 -- Get git root directory for the given file
 function M.get_git_root(file_path)
   local dir = vim.fn.fnamemodify(file_path, ":h")
+  -- Normalize to forward slashes for consistency
+  dir = dir:gsub("\\", "/")
 
   -- Run synchronously for simplicity in this case
   local result = vim.system and
@@ -88,7 +90,10 @@ function M.get_git_root(file_path)
 
   if vim.system then
     if result and result.code == 0 then
-      return vim.trim(result.stdout)
+      local git_root = vim.trim(result.stdout)
+      -- Normalize to forward slashes (git uses forward slashes even on Windows)
+      git_root = git_root:gsub("\\", "/")
+      return git_root
     end
   else
     -- Fallback for older Neovim
@@ -104,9 +109,10 @@ end
 -- Get relative path of file within git repository
 function M.get_relative_path(file_path, git_root)
   local abs_path = vim.fn.fnamemodify(file_path, ":p")
+  -- Normalize both paths to forward slashes for consistent substring operation
+  abs_path = abs_path:gsub("\\", "/")
+  git_root = git_root:gsub("\\", "/")
   local rel_path = abs_path:sub(#git_root + 2) -- +2 for the trailing slash
-  -- Git always uses forward slashes, even on Windows
-  rel_path = rel_path:gsub("\\", "/")
   return rel_path
 end
 
@@ -128,6 +134,16 @@ function M.get_file_at_revision(revision, file_path, callback)
   end
 
   local rel_path = M.get_relative_path(file_path, git_root)
+  M.get_file_at_revision_with_root(revision, git_root, rel_path, callback)
+end
+
+-- Get file content from a specific git revision (with explicit git_root)
+-- This is used by virtual_file.lua which already knows the git_root
+-- revision: e.g., "HEAD", "HEAD~1", commit hash, branch name, tag
+-- git_root: absolute path to git repository root
+-- rel_path: relative path from git root (with forward slashes)
+-- callback: function(err, lines) where lines is a table of strings
+function M.get_file_at_revision_with_root(revision, git_root, rel_path, callback)
   local git_object = revision .. ":" .. rel_path
 
   run_git_async(

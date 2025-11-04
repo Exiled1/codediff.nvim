@@ -39,7 +39,7 @@ local function handle_git_diff(revision)
       
       -- Get git root and relative path for virtual file URL
       local git_root = git.get_git_root(current_file)
-      local relative_path = current_file:gsub('^' .. vim.pesc(git_root .. '/'), '')
+      local relative_path = git.get_relative_path(current_file, git_root)
       
       -- Determine filetype from current buffer
       local filetype = vim.bo[0].filetype
