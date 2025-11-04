@@ -22,6 +22,8 @@
    - Step 2: Execute `bash /tmp/experiment.sh`
    - Step 3: Clean up the file after use
 
+4. **Trailing Spaces**: NEVER add trailing spaces to any line in any file. Always ensure lines end cleanly without whitespace.
+
 ## Path-Specific Instructions
 
 Path-specific instructions are defined in `.github/copilot-instructions.md` files within respective directories.

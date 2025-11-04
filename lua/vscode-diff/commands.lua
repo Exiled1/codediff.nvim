@@ -24,8 +24,6 @@ local function handle_git_diff(revision)
     return
   end
 
-  local lines_current = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-
   git.get_file_at_revision(revision, current_file, function(err, lines_git)
     vim.schedule(function()
       if err then
@@ -33,8 +31,35 @@ local function handle_git_diff(revision)
         return
       end
 
+      -- Read fresh buffer content right before creating diff view
+      -- This ensures we diff against the current buffer state, not a snapshot
+      local lines_current = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      
       local lines_diff = diff.compute_diff(lines_git, lines_current)
-      render.create_diff_view(lines_git, lines_current, lines_diff)
+      
+      -- Get git root and relative path for virtual file URL
+      local git_root = git.get_git_root(current_file)
+      local relative_path = current_file:gsub('^' .. vim.pesc(git_root .. '/'), '')
+      
+      -- Determine filetype from current buffer
+      local filetype = vim.bo[0].filetype
+      if not filetype or filetype == "" then
+        filetype = vim.filetype.match({ filename = current_file })
+      end
+      
+      render.create_diff_view(lines_git, lines_current, lines_diff, {
+        left_type = render.BufferType.VIRTUAL_FILE,
+        left_config = {
+          git_root = git_root,
+          git_revision = revision,
+          relative_path = relative_path,
+        },
+        right_type = render.BufferType.REAL_FILE,
+        right_config = {
+          file_path = current_file,
+        },
+        filetype = filetype,
+      })
     end)
   end)
 end
@@ -44,7 +69,17 @@ local function handle_file_diff(file_a, file_b)
   local lines_b = vim.fn.readfile(file_b)
 
   local lines_diff = diff.compute_diff(lines_a, lines_b)
-  render.create_diff_view(lines_a, lines_b, lines_diff)
+  
+  -- Determine filetype from first file
+  local filetype = vim.filetype.match({ filename = file_a })
+  
+  render.create_diff_view(lines_a, lines_b, lines_diff, {
+    left_type = render.BufferType.REAL_FILE,
+    left_config = { file_path = file_a },
+    right_type = render.BufferType.REAL_FILE,
+    right_config = { file_path = file_b },
+    filetype = filetype,
+  })
 end
 
 function M.vscode_diff(opts)

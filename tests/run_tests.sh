@@ -51,6 +51,16 @@ else
   echo ""
 fi
 
+# Test 4: Semantic Tokens Rendering
+echo -e "${CYAN}Running: Semantic Tokens Tests${NC}"
+if nvim --headless -c "luafile $SCRIPT_DIR/render/test_semantic_tokens.lua" -c "qa!" 2>&1; then
+  echo ""
+else
+  echo -e "${RED}✗ Semantic tokens tests failed${NC}"
+  FAILED=$((FAILED + 1))
+  echo ""
+fi
+
 # Summary
 echo "╔══════════════════════════════════════════════════════════════╗"
 if [ $FAILED -eq 0 ]; then
