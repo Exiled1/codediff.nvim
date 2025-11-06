@@ -105,7 +105,8 @@ jobs:
       - name: Build library (Windows)
         if: startsWith(matrix.runs-on, 'windows')
         run: |
-          .\build.cmd
+          cmake -B build
+          cmake --build build --config Release
 
       - name: Run C unit tests (Ubuntu/macOS)
         if: startsWith(matrix.runs-on, 'ubuntu') || startsWith(matrix.runs-on, 'macos')
