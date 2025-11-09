@@ -39,9 +39,9 @@ describe("Virtual buffer diagnostics integration", function()
       revision = "HEAD~1"
     end
 
-    -- Run CodeDiff with a valid revision
+    -- Run CodeDiff with a valid revision (use new syntax with "file" subcommand)
     local ok, err = pcall(function()
-      vim.cmd('CodeDiff ' .. revision)
+      vim.cmd('CodeDiff file ' .. revision)
     end)
 
     assert.is_true(ok, "CodeDiff command should execute successfully: " .. tostring(err))

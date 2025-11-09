@@ -3,6 +3,7 @@
 
 local render = require("vscode-diff.render")
 local diff = require("vscode-diff.diff")
+local lifecycle = require("vscode-diff.render.lifecycle")
 
 -- Helper function to get platform-agnostic temp directory
 local function get_temp_dir()
@@ -16,6 +17,14 @@ end
 
 local function get_temp_path(filename)
   return get_temp_dir() .. (vim.fn.has("win32") == 1 and "\\" or "/") .. filename
+end
+
+-- Helper to create session
+local function create_test_session(left_path, right_path)
+  vim.cmd("tabnew")
+  local tabpage = vim.api.nvim_get_current_tabpage()
+  lifecycle.create_session(tabpage, "standalone", nil, left_path, right_path, "WORKING", "WORKING")
+  return tabpage
 end
 
 describe("Auto-scroll to first hunk", function()
@@ -57,23 +66,19 @@ describe("Auto-scroll to first hunk", function()
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     if not lines_diff then error("lines_diff is nil") end
-    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
-      left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = left_path },
-      right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = right_path },
-    })
+    local tabpage = create_test_session(left_path, right_path)
+    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, tabpage, nil)
 
     -- Wait for vim.schedule to complete
     vim.cmd("redraw")
     vim.wait(100)
     if not view then error("view is nil") end
 
-    local left_cursor = vim.api.nvim_win_get_cursor(view.left_win)
-    local right_cursor = vim.api.nvim_win_get_cursor(view.right_win)
+    local original_cursor = vim.api.nvim_win_get_cursor(view.original_win)
+    local modified_cursor = vim.api.nvim_win_get_cursor(view.modified_win)
 
-    assert(21 == left_cursor[1], "Left cursor should be at line 21")
-    assert(21 == right_cursor[1], "Right cursor should be at line 21")
+    assert(21 == original_cursor[1], "Original cursor should be at line 21")
+    assert(21 == modified_cursor[1], "Modified cursor should be at line 21")
 
     -- Cleanup
     vim.fn.delete(left_path)
@@ -93,23 +98,19 @@ describe("Auto-scroll to first hunk", function()
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     if not lines_diff then error("lines_diff is nil") end
-    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
-      left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = left_path },
-      right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = right_path },
-    })
+    local tabpage = create_test_session(left_path, right_path)
+    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, tabpage, nil)
 
     -- Wait for vim.schedule to complete
     vim.cmd("redraw")
     vim.wait(100)
     if not view then error("view is nil") end
 
-    local left_cursor = vim.api.nvim_win_get_cursor(view.left_win)
-    local right_cursor = vim.api.nvim_win_get_cursor(view.right_win)
+    local original_cursor = vim.api.nvim_win_get_cursor(view.original_win)
+    local modified_cursor = vim.api.nvim_win_get_cursor(view.modified_win)
 
-    assert(1 == left_cursor[1], "Cursor should be at line 1")
-    assert(1 == right_cursor[1], "Cursor should be at line 1")
+    assert(1 == original_cursor[1], "Cursor should be at line 1")
+    assert(1 == modified_cursor[1], "Cursor should be at line 1")
 
     -- Cleanup
     vim.fn.delete(left_path)
@@ -142,19 +143,15 @@ describe("Auto-scroll to first hunk", function()
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     if not lines_diff then error("lines_diff is nil") end
-    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
-      left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = left_path },
-      right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = right_path },
-    })
+    local tabpage = create_test_session(left_path, right_path)
+    local view = render.create_diff_view(original_lines, modified_lines, lines_diff, tabpage, nil)
 
     -- Wait for vim.schedule to complete
     vim.cmd("redraw")
     vim.wait(100)
     if not view then error("view is nil") end
 
-    local cursor = vim.api.nvim_win_get_cursor(view.right_win)
+    local cursor = vim.api.nvim_win_get_cursor(view.modified_win)
     assert(51 == cursor[1], "Cursor should be at line 51")
     -- Cleanup
     vim.fn.delete(left_path)
@@ -169,17 +166,13 @@ describe("Auto-scroll to first hunk", function()
 
     local lines_diff = diff.compute_diff(lines, lines)
     if not lines_diff then error("lines_diff is nil") end
-    local view = render.create_diff_view(lines, lines, lines_diff, {
-      left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = left_path },
-      right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = right_path },
-    })
+    local tabpage = create_test_session(left_path, right_path)
+    local view = render.create_diff_view(lines, lines, lines_diff, tabpage, nil)
 
     vim.cmd("redraw")
     if not view then error("view is nil") end
 
-    local cursor = vim.api.nvim_win_get_cursor(view.right_win)
+    local cursor = vim.api.nvim_win_get_cursor(view.modified_win)
     assert(1 == cursor[1], "Cursor should be at line 1 when no changes")
 
     -- Cleanup
@@ -205,18 +198,14 @@ describe("Auto-scroll to first hunk", function()
 
     local lines_diff = diff.compute_diff(original, modified)
     if not lines_diff then error("lines_diff is nil") end
-    local view = render.create_diff_view(original, modified, lines_diff, {
-      left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = left_path },
-      right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = right_path },
-    })
+    local tabpage = create_test_session(left_path, right_path)
+    local view = render.create_diff_view(original, modified, lines_diff, tabpage, nil)
 
     if not view then error("view is nil") end
     vim.cmd("redraw")
 
     local current_win = vim.api.nvim_get_current_win()
-    assert(view.right_win == current_win, "Right window should be active for scroll sync")
+    assert(view.modified_win == current_win, "Modified window should be active for scroll sync")
 
     -- Cleanup
     vim.fn.delete(left_path)
