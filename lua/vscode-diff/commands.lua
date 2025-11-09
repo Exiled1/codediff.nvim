@@ -61,19 +61,23 @@ local function handle_git_diff(revision)
             return
           end
 
-          render.create_diff_view(lines_git, lines_current, lines_diff, {
-            left_type = render.BufferType.VIRTUAL_FILE,
-            left_config = {
-              git_root = git_root,
-              git_revision = commit_hash,
-              relative_path = relative_path,
-            },
-            right_type = render.BufferType.REAL_FILE,
-            right_config = {
-              file_path = current_file,
-            },
-            filetype = filetype,
-          })
+          -- Create lifecycle session FIRST with git context
+          local lifecycle = require('vscode-diff.render.lifecycle')
+          -- Create new tab for diff view
+          vim.cmd("tabnew")
+          local tabpage = vim.api.nvim_get_current_tabpage()
+          lifecycle.create_session(
+            tabpage,
+            "standalone",  -- mode
+            git_root,      -- git_root
+            relative_path, -- original_path
+            relative_path, -- modified_path (same file, different versions)
+            commit_hash,   -- original_revision (git version)
+            "WORKING"      -- modified_revision (current working copy)
+          )
+
+          -- Now create diff view (it reads everything from lifecycle)
+          render.create_diff_view(lines_git, lines_current, lines_diff, tabpage, filetype)
         end)
       end)
     end)
@@ -97,13 +101,23 @@ local function handle_file_diff(file_a, file_b)
   -- Determine filetype from first file
   local filetype = vim.filetype.match({ filename = file_a }) or ""
 
-  render.create_diff_view(lines_a, lines_b, lines_diff, {
-    left_type = render.BufferType.REAL_FILE,
-    left_config = { file_path = file_a },
-    right_type = render.BufferType.REAL_FILE,
-    right_config = { file_path = file_b },
-    filetype = filetype,
-  })
+  -- Create lifecycle session FIRST (no git context for file compare)
+  local lifecycle = require('vscode-diff.render.lifecycle')
+  -- Create new tab for diff view
+  vim.cmd("tabnew")
+  local tabpage = vim.api.nvim_get_current_tabpage()
+  lifecycle.create_session(
+    tabpage,
+    "standalone",  -- mode
+    nil,           -- git_root (no git for file compare)
+    file_a,        -- original_path (absolute)
+    file_b,        -- modified_path (absolute)
+    nil,           -- original_revision (nil = non-git file)
+    nil            -- modified_revision (nil = non-git file)
+  )
+
+  -- Create diff view (it reads everything from lifecycle)
+  render.create_diff_view(lines_a, lines_b, lines_diff, tabpage, filetype)
 end
 
 function M.vscode_diff(opts)
@@ -144,7 +158,7 @@ function M.vscode_diff(opts)
       vim.notify("Installation failed: " .. (err or "unknown error"), vim.log.levels.ERROR)
     end
   else
-    -- :CodeDiff <revision> will be used for explorer in the future
+    -- :CodeDiff without "file" is reserved for explorer mode (not implemented yet)
     vim.notify("TODO: Explorer mode not implemented. Use :CodeDiff file <revision> for now", vim.log.levels.WARN)
   end
 end

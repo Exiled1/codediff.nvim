@@ -15,8 +15,8 @@ describe("Render Lifecycle", function()
     lifecycle.cleanup_all()
   end)
 
-  -- Test 1: Register new diff session
-  it("Registers a new diff session successfully", function()
+  -- Test 1: Create and complete new diff session
+  it("Creates and completes a new diff session successfully", function()
     local left_buf = vim.api.nvim_create_buf(false, true)
     local right_buf = vim.api.nvim_create_buf(false, true)
     
@@ -34,12 +34,13 @@ describe("Render Lifecycle", function()
     local modified = {"line 1", "line 3"}
     local lines_diff = diff.compute_diff(original, modified)
 
-    -- Should register without error
+    -- Should create and complete session without error
     local success = pcall(function()
-      lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+      lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+      lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
     end)
 
-    assert.is_true(success, "Should register session without error")
+    assert.is_true(success, "Should create and complete session without error")
 
     vim.cmd('tabclose')
     vim.api.nvim_buf_delete(left_buf, {force = true})
@@ -67,7 +68,8 @@ describe("Render Lifecycle", function()
     vim.api.nvim_buf_set_lines(right_buf, 0, -1, false, modified)
     
     local lines_diff = diff.compute_diff(original, modified)
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Manually add some highlights to verify cleanup
     vim.api.nvim_buf_set_extmark(right_buf, highlights.ns_highlight, 1, 0, {
@@ -109,7 +111,8 @@ describe("Render Lifecycle", function()
     vim.api.nvim_buf_set_lines(right_buf, 0, -1, false, modified)
     
     local lines_diff = diff.compute_diff(original, modified)
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Manually add filler
     vim.api.nvim_buf_set_extmark(left_buf, highlights.ns_filler, 0, 0, {
@@ -156,7 +159,8 @@ describe("Render Lifecycle", function()
       local modified = {"line 1", "added"}
       local lines_diff = diff.compute_diff(original, modified)
       
-      lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+      lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+      lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
     end
 
     -- Should cleanup all without error
@@ -206,7 +210,8 @@ describe("Render Lifecycle", function()
     local lines_diff = diff.compute_diff(original, modified)
 
     -- Register once
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Register again with updated data
     local original2 = {"line 3"}
@@ -214,7 +219,8 @@ describe("Render Lifecycle", function()
     local lines_diff2 = diff.compute_diff(original2, modified2)
 
     local success = pcall(function()
-      lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original2, modified2, lines_diff2)
+      lifecycle.create_session(tabpage, "standalone", nil, "test_file3.txt", "test_file4.txt", "WORKING", "WORKING")
+      lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff2)
     end)
 
     assert.is_true(success, "Should handle re-registration without error")
@@ -255,7 +261,8 @@ describe("Render Lifecycle", function()
     local modified = {"line 2"}
     local lines_diff = diff.compute_diff(original, modified)
     
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Delete buffers before cleanup
     vim.api.nvim_buf_delete(left_buf, {force = true})
@@ -293,7 +300,8 @@ describe("Render Lifecycle", function()
     local modified = {"line 2"}
     local lines_diff = diff.compute_diff(original, modified)
 
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Verify buffers are valid and accessible
     assert.is_true(vim.api.nvim_buf_is_valid(left_buf), "Left buffer should be valid")
@@ -323,7 +331,8 @@ describe("Render Lifecycle", function()
     local modified = {"line 2"}
     local lines_diff = diff.compute_diff(original, modified)
 
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Verify windows are valid
     assert.is_true(vim.api.nvim_win_is_valid(left_win), "Left window should be valid")
@@ -365,8 +374,10 @@ describe("Render Lifecycle", function()
     -- Set buffer content first
     vim.api.nvim_buf_set_lines(bufs2[1], 0, -1, false, {"test line"})
 
-    lifecycle.register(tab1, bufs1[1], bufs1[2], left_win1, right_win1, original, modified, lines_diff)
-    lifecycle.register(tab2, bufs2[1], bufs2[2], left_win2, right_win2, original, modified, lines_diff)
+    lifecycle.create_session(tab1, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tab1, bufs1[1], bufs1[2], left_win1, right_win1, lines_diff)
+    lifecycle.create_session(tab2, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tab2, bufs2[1], bufs2[2], left_win2, right_win2, lines_diff)
 
     -- Add highlights to session 2
     vim.api.nvim_buf_set_extmark(bufs2[1], highlights.ns_highlight, 0, 0, {
@@ -410,7 +421,8 @@ describe("Render Lifecycle", function()
     local lines_diff = diff.compute_diff(original, modified)
 
     local success = pcall(function()
-      lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+      lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+      lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
     end)
 
     assert.is_true(success, "Should handle empty lines without error")
@@ -453,7 +465,8 @@ describe("Render Lifecycle", function()
     vim.api.nvim_buf_set_lines(right_buf, 0, -1, false, modified)
     
     local lines_diff = diff.compute_diff(original, modified)
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     lifecycle.cleanup(tabpage)
 
@@ -488,7 +501,8 @@ describe("Render Lifecycle", function()
     local modified = {"line 2"}
     local lines_diff = diff.compute_diff(original, modified)
     
-    lifecycle.register(tabpage, left_buf, right_buf, left_win, right_win, original, modified, lines_diff)
+    lifecycle.create_session(tabpage, "standalone", nil, "test_file1.txt", "test_file2.txt", "WORKING", "WORKING")
+    lifecycle.complete_session(tabpage, left_buf, right_buf, left_win, right_win, lines_diff)
 
     -- Close one window
     vim.api.nvim_win_close(left_win, true)
