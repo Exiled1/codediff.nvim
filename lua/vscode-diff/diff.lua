@@ -42,7 +42,22 @@ if not vim.env.VSCODE_DIFF_NO_AUTO_INSTALL and installer.needs_update() then
   end
 end
 
-local lib = ffi.load(lib_path)
+-- Try to load the library - fall back to unversioned name for local builds
+local lib
+local load_ok, load_err = pcall(function()
+  lib = ffi.load(lib_path)
+end)
+
+if not load_ok then
+  -- Try fallback to unversioned library (for local builds and tests)
+  local fallback_lib_name = "libvscode_diff." .. lib_ext
+  local fallback_path = plugin_root .. "/" .. fallback_lib_name
+  if vim.fn.filereadable(fallback_path) == 1 then
+    lib = ffi.load(fallback_path)
+  else
+    error(load_err)
+  end
+end
 
 -- FFI type definitions matching C types.h
 ffi.cdef[[
