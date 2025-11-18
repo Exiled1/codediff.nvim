@@ -55,6 +55,12 @@ function M.setup()
     fg = "#444444",  -- Subtle gray for the slash character
     default = true,
   })
+  
+  -- Explorer directory text (smaller and dimmed)
+  vim.api.nvim_set_hl(0, "ExplorerDirectorySmall", {
+    link = "Comment",
+    default = true,
+  })
 end
 
 return M

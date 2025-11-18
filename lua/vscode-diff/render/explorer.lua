@@ -74,7 +74,7 @@ local function prepare_node(node, max_width)
     line:append(icon .. " ", "Directory")
     line:append(node.text, "Directory")
   else
-    -- File entry
+    -- File entry - VSCode style: filename (bold) + directory (dimmed) + status (right-aligned)
     local indent = string.rep("  ", node:get_depth() - 1)
     line:append(indent)
     
@@ -87,30 +87,46 @@ local function prepare_node(node, max_width)
     -- Status symbol at the end (e.g., "M", "D", "??")
     local status_symbol = data.status_symbol or ""
     
+    -- Split path into filename and directory
+    local full_path = data.path or node.text
+    local filename = full_path:match("([^/]+)$") or full_path
+    local directory = full_path:sub(1, -(#filename + 1))  -- Remove filename, keep trailing /
+    
     -- Calculate how much width we've used and reserve for status
-    -- Use simple byte count for consistent calculation
     local used_width = #indent + #icon_part
     local status_reserve = #status_symbol + 2  -- 2 spaces padding before status
-    local available_for_path = max_width - used_width - status_reserve
+    local available_for_content = max_width - used_width - status_reserve
     
-    -- Truncate path from the beginning (show filename, hide root folders)
-    local display_path = data.path or node.text
+    -- VSCode shows: filename + directory (dimmed), truncate directory if needed
+    local filename_len = #filename
+    local directory_len = #directory
+    local space_len = (#directory > 0) and 1 or 0  -- Account for space between filename and directory
     
-    if #display_path > available_for_path then
-      -- Keep the end of the path (filename visible), trim from start
-      local ellipsis = "..."
-      local chars_to_keep = available_for_path - #ellipsis
-      if chars_to_keep > 0 then
-        display_path = ellipsis .. display_path:sub(-chars_to_keep)
+    if filename_len + space_len + directory_len > available_for_content then
+      -- Prioritize showing full filename, truncate directory from end (right)
+      local available_for_dir = available_for_content - filename_len - space_len
+      if available_for_dir > 3 then
+        -- Show truncated directory (from the start, hide the end)
+        local ellipsis = "..."
+        local chars_to_keep = available_for_dir - #ellipsis
+        directory = directory:sub(1, chars_to_keep) .. ellipsis
       else
-        display_path = display_path:sub(-available_for_path)
+        -- Not enough space for directory, just show filename
+        directory = ""
+        space_len = 0
       end
     end
     
-    line:append(display_path, "Normal")
+    -- Append filename (normal weight) and directory (dimmed with smaller font)
+    line:append(filename, "Normal")
+    if #directory > 0 then
+      line:append(" ", "Normal")
+      line:append(directory, "ExplorerDirectorySmall")  -- Smaller dimmed style
+    end
     
     -- Add padding to push status symbol to the right edge
-    local padding_needed = available_for_path - #display_path + 2
+    local content_len = #filename + space_len + #directory
+    local padding_needed = available_for_content - content_len + 2
     if padding_needed > 0 then
       line:append(string.rep(" ", padding_needed))
     end
@@ -258,9 +274,68 @@ function M.create(status_result, git_root, tabpage, width)
     on_file_select(node.data)
   end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
 
-  -- Close explorer
-  vim.keymap.set("n", "q", function()
-    split:unmount()
+  -- Close explorer (disabled)
+  -- vim.keymap.set("n", "q", function()
+  --   split:unmount()
+  -- end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  
+  -- Hover to show full path (K key, like LSP hover)
+  local hover_win = nil
+  vim.keymap.set("n", "K", function()
+    -- Close existing hover window
+    if hover_win and vim.api.nvim_win_is_valid(hover_win) then
+      vim.api.nvim_win_close(hover_win, true)
+      hover_win = nil
+      return
+    end
+    
+    local node = tree:get_node()
+    if not node or not node.data or node.data.type == "group" then return end
+    
+    local full_path = node.data.path
+    local display_text = git_root .. "/" .. full_path
+    
+    -- Create hover buffer
+    local hover_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(hover_buf, 0, -1, false, { display_text })
+    vim.bo[hover_buf].modifiable = false
+    
+    -- Calculate window position (next to cursor)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = vim.api.nvim_win_get_width(0)
+    
+    -- Calculate window dimensions with wrapping
+    local max_width = 80
+    local text_len = #display_text
+    local width = math.min(text_len + 2, max_width)
+    local height = math.ceil(text_len / (max_width - 2))  -- Account for padding
+    
+    -- Create floating window with wrap enabled
+    hover_win = vim.api.nvim_open_win(hover_buf, false, {
+      relative = "win",
+      row = row,
+      col = col,
+      width = width,
+      height = height,
+      style = "minimal",
+      border = "rounded",
+    })
+    
+    -- Enable wrap in hover window
+    vim.wo[hover_win].wrap = true
+    
+    -- Auto-close on cursor move or buffer leave
+    vim.api.nvim_create_autocmd({"CursorMoved", "BufLeave"}, {
+      buffer = split.bufnr,
+      once = true,
+      callback = function()
+        if hover_win and vim.api.nvim_win_is_valid(hover_win) then
+          vim.api.nvim_win_close(hover_win, true)
+          hover_win = nil
+        end
+      end,
+    })
   end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
 
   -- Select first file by default
