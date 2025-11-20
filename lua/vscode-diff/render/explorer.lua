@@ -446,9 +446,10 @@ function M.setup_auto_refresh(explorer, tabpage)
     end,
   })
   
-  -- Auto-refresh on FocusGained (window focus)
-  vim.api.nvim_create_autocmd('FocusGained', {
+  -- Auto-refresh when explorer buffer is entered (user focuses explorer window)
+  vim.api.nvim_create_autocmd('BufEnter', {
     group = group,
+    buffer = explorer.bufnr,
     callback = function()
       if vim.api.nvim_tabpage_is_valid(tabpage) then
         debounced_refresh()
