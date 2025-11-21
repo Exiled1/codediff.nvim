@@ -36,5 +36,5 @@ vim.api.nvim_create_user_command("CodeDiff", commands.vscode_diff, {
   nargs = "*",
   bang = true,
   complete = complete_codediff,
-  desc = "VSCode-style diff view: :CodeDiff [explorer] | file <revision> | file <file_a> <file_b> | install"
+  desc = "VSCode-style diff view: :CodeDiff [<revision>] | file <revision> | file <file_a> <file_b> | install"
 })

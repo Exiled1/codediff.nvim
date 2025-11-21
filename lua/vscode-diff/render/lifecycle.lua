@@ -298,6 +298,9 @@ function M.create_session(tabpage, mode, git_root, original_path, modified_path,
       original = get_file_mtime(original_bufnr),
       modified = get_file_mtime(modified_bufnr),
     },
+    
+    -- Explorer reference (only for explorer mode)
+    explorer = nil,
   }
 
   -- Mark windows with restore flag
@@ -312,6 +315,26 @@ function M.create_session(tabpage, mode, git_root, original_path, modified_path,
 
   -- Setup tab autocmds
   local tab_augroup = vim.api.nvim_create_augroup('vscode_diff_lifecycle_tab_' .. tabpage, { clear = true })
+
+  -- Force disable winbar to prevent alignment issues
+  local function ensure_no_winbar()
+    if vim.api.nvim_win_is_valid(original_win) then
+      vim.wo[original_win].winbar = ""
+    end
+    if vim.api.nvim_win_is_valid(modified_win) then
+      vim.wo[modified_win].winbar = ""
+    end
+  end
+
+  vim.api.nvim_create_autocmd({'BufWinEnter', 'FileType'}, {
+    group = tab_augroup,
+    callback = function(args)
+      local win = vim.api.nvim_get_current_win()
+      if win == original_win or win == modified_win then
+        ensure_no_winbar()
+      end
+    end,
+  })
 
   vim.api.nvim_create_autocmd('TabLeave', {
     group = tab_augroup,
@@ -678,6 +701,21 @@ function M.update_revisions(tabpage, original_revision, modified_revision)
   return true
 end
 
+--- Set explorer reference (for explorer mode)
+function M.set_explorer(tabpage, explorer)
+  local session = active_diffs[tabpage]
+  if not session then return false end
+  
+  session.explorer = explorer
+  return true
+end
+
+--- Get explorer reference (for explorer mode)
+function M.get_explorer(tabpage)
+  local session = active_diffs[tabpage]
+  return session and session.explorer
+end
+
 --- Setup auto-sync on file switch: automatically update diff when user edits a different file in working buffer
 --- Only activates when one side is virtual (git revision) and other is working file
 --- @param tabpage number Tabpage ID
@@ -740,18 +778,14 @@ function M.setup_auto_sync_on_file_switch(tabpage, original_is_virtual, modified
           if err then
             -- Not in git, just update paths without git context
             vim.schedule(function()
-              local new_lines_working = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-              local new_lines_virtual = new_lines_working -- Can't get virtual version
-
               -- Get relative path if possible
               local relative_path = new_path
               if session.git_root then
                 relative_path = git.get_relative_path(new_path, session.git_root)
               end
 
+              -- No pre-fetching needed, buffers will load content
               view.update(tabpage,
-                working_side == "original" and new_lines_working or new_lines_virtual,
-                working_side == "modified" and new_lines_working or new_lines_virtual,
                 {
                   mode = session.mode,
                   git_root = nil,
@@ -767,31 +801,17 @@ function M.setup_auto_sync_on_file_switch(tabpage, original_is_virtual, modified
           -- In git! Get relative path
           local relative_path = git.get_relative_path(new_path, new_git_root)
 
-          -- Get virtual file content (from commit)
-          local virtual_revision = original_is_virtual and session.original_revision or session.modified_revision
-          git.get_file_content(virtual_revision, new_git_root, relative_path, function(err_content, virtual_lines)
-            vim.schedule(function()
-              if err_content then
-                vim.notify("Failed to get file from " .. virtual_revision .. ": " .. err_content, vim.log.levels.WARN)
-                return
-              end
-
-              -- Get working file content
-              local working_lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-
-              -- Update both sides
-              view.update(tabpage,
-                original_is_virtual and virtual_lines or working_lines,
-                modified_is_virtual and virtual_lines or working_lines,
-                {
-                  mode = session.mode,
-                  git_root = new_git_root,
-                  original_path = relative_path,
-                  modified_path = relative_path,
-                  original_revision = session.original_revision,
-                  modified_revision = session.modified_revision,
-                })
-            end)
+          -- No pre-fetching needed, buffers will load content
+          vim.schedule(function()
+            view.update(tabpage,
+              {
+                mode = session.mode,
+                git_root = new_git_root,
+                original_path = relative_path,
+                modified_path = relative_path,
+                original_revision = session.original_revision,
+                modified_revision = session.modified_revision,
+              })
           end)
         end)
       end)

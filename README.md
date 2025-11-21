@@ -107,7 +107,7 @@ The installer reads the `VERSION` file to download the matching library version 
 
 The `:CodeDiff` command supports multiple modes:
 
-### File Explorer Mode (Coming Soon)
+### File Explorer Mode
 
 Open an interactive file explorer showing changed files:
 
@@ -117,6 +117,12 @@ Open an interactive file explorer showing changed files:
 
 " Show changes for specific revision in explorer
 :CodeDiff HEAD~5
+
+" Compare against a branch
+:CodeDiff main
+
+" Compare against a specific commit
+:CodeDiff abc123
 ```
 
 ### Git Diff Mode

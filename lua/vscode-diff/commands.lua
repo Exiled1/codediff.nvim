@@ -39,42 +39,29 @@ local function handle_git_diff(revision)
         return
       end
 
-      git.get_file_content(commit_hash, git_root, relative_path, function(err, lines_git)
-        vim.schedule(function()
-          if err then
-            vim.notify(err, vim.log.levels.ERROR)
-            return
-          end
-
-          -- Read fresh buffer content right before creating diff view
-          local lines_current = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-
-          -- Create diff view
-          local view = require('vscode-diff.render.view')
-          ---@type SessionConfig
-          local session_config = {
-            mode = "standalone",
-            git_root = git_root,
-            original_path = relative_path,
-            modified_path = relative_path,
-            original_revision = commit_hash,
-            modified_revision = "WORKING",
-          }
-          view.create(lines_git, lines_current, session_config, filetype)
-        end)
+      -- Create diff view (no pre-fetching needed, buffers will load content)
+      vim.schedule(function()
+        local view = require('vscode-diff.render.view')
+        ---@type SessionConfig
+        local session_config = {
+          mode = "standalone",
+          git_root = git_root,
+          original_path = relative_path,
+          modified_path = relative_path,
+          original_revision = commit_hash,
+          modified_revision = "WORKING",
+        }
+        view.create(session_config, filetype)
       end)
     end)
   end)
 end
 
 local function handle_file_diff(file_a, file_b)
-  local lines_a = vim.fn.readfile(file_a)
-  local lines_b = vim.fn.readfile(file_b)
-
   -- Determine filetype from first file
   local filetype = vim.filetype.match({ filename = file_a }) or ""
 
-  -- Create diff view
+  -- Create diff view (no pre-reading needed, :edit will load content)
   local view = require('vscode-diff.render.view')
   ---@type SessionConfig
   local session_config = {
@@ -85,14 +72,89 @@ local function handle_file_diff(file_a, file_b)
     original_revision = nil,
     modified_revision = nil,
   }
-  view.create(lines_a, lines_b, session_config, filetype)
+  view.create(session_config, filetype)
+end
+
+local function handle_explorer(revision)
+  -- Use current buffer's directory if available, otherwise use cwd
+  local current_buf = vim.api.nvim_get_current_buf()
+  local current_file = vim.api.nvim_buf_get_name(current_buf)
+  local check_path = current_file ~= "" and current_file or vim.fn.getcwd()
+
+  -- Check if in git repository
+  git.get_git_root(check_path, function(err_root, git_root)
+    if err_root then
+      vim.schedule(function()
+        vim.notify(err_root, vim.log.levels.ERROR)
+      end)
+      return
+    end
+
+    local function process_status(err_status, status_result, resolved_revision)
+      vim.schedule(function()
+        if err_status then
+          vim.notify(err_status, vim.log.levels.ERROR)
+          return
+        end
+
+        -- Check if there are any changes
+        if #status_result.unstaged == 0 and #status_result.staged == 0 then
+          vim.notify("No changes to show", vim.log.levels.INFO)
+          return
+        end
+
+        -- Create explorer view with empty diff panes initially
+        local view = require('vscode-diff.render.view')
+
+        ---@type SessionConfig
+        local session_config = {
+          mode = "explorer",
+          git_root = git_root,
+          original_path = "",  -- Empty indicates explorer mode placeholder
+          modified_path = "",
+          original_revision = resolved_revision,
+          modified_revision = resolved_revision and "WORKING" or nil,
+          explorer_data = {
+            status_result = status_result,
+          }
+        }
+
+        -- view.create handles everything: tab, windows, explorer, and lifecycle
+        -- Empty lines and paths - explorer will populate via first file selection
+        view.create(session_config, "")
+      end)
+    end
+
+    if revision then
+      -- Resolve revision first, then get diff
+      git.resolve_revision(revision, git_root, function(err_resolve, commit_hash)
+        if err_resolve then
+          vim.schedule(function()
+            vim.notify(err_resolve, vim.log.levels.ERROR)
+          end)
+          return
+        end
+
+        -- Get diff between revision and working tree
+        git.get_diff_revision(commit_hash, git_root, function(err_status, status_result)
+          process_status(err_status, status_result, commit_hash)
+        end)
+      end)
+    else
+      -- Get git status (current changes)
+      git.get_status(git_root, function(err_status, status_result)
+        process_status(err_status, status_result, nil)
+      end)
+    end
+  end)
 end
 
 function M.vscode_diff(opts)
   local args = opts.fargs
 
   if #args == 0 then
-    vim.notify("TODO: File explorer not implemented yet. Usage: :CodeDiff file <revision> OR :CodeDiff file <file_a> <file_b>", vim.log.levels.WARN)
+    -- :CodeDiff without arguments opens explorer mode
+    handle_explorer()
     return
   end
 
@@ -113,21 +175,21 @@ function M.vscode_diff(opts)
     -- Handle both :CodeDiff! install and :CodeDiff install!
     local force = opts.bang or subcommand == "install!"
     local installer = require("vscode-diff.installer")
-    
+
     if force then
       vim.notify("Reinstalling libvscode-diff...", vim.log.levels.INFO)
     end
-    
+
     local success, err = installer.install({ force = force, silent = false })
-    
+
     if success then
       vim.notify("libvscode-diff installation successful!", vim.log.levels.INFO)
     else
       vim.notify("Installation failed: " .. (err or "unknown error"), vim.log.levels.ERROR)
     end
   else
-    -- :CodeDiff without "file" is reserved for explorer mode (not implemented yet)
-    vim.notify("TODO: Explorer mode not implemented. Use :CodeDiff file <revision> for now", vim.log.levels.WARN)
+    -- :CodeDiff <revision> - opens explorer mode with diff against revision
+    handle_explorer(subcommand)
   end
 end
 

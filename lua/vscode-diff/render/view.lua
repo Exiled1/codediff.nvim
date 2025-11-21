@@ -56,6 +56,7 @@ end
 ---@field modified_path string
 ---@field original_revision string?
 ---@field modified_revision string?
+---@field explorer_data table? For explorer mode: { status_result }
 
 -- Common logic: Compute diff and render highlights
 -- @param auto_scroll_to_first_hunk boolean: Whether to auto-scroll to first change (default true)
@@ -134,61 +135,171 @@ local function setup_auto_refresh(original_buf, modified_buf, original_is_virtua
   end
 end
 
----@param original_lines string[] Lines from the original version
----@param modified_lines string[] Lines from the modified version
+-- Setup ]c and [c keymaps for hunk navigation
+local function setup_hunk_navigation_keymaps(tabpage, original_bufnr, modified_bufnr)
+  local function navigate_next_hunk()
+    local session = lifecycle.get_session(tabpage)
+    if not session or not session.stored_diff_result then
+      return
+    end
+    
+    local diff_result = session.stored_diff_result
+    if #diff_result.changes == 0 then
+      return
+    end
+    
+    -- Get current cursor position
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local current_line = cursor[1]
+    
+    -- Find next hunk after current line
+    for _, mapping in ipairs(diff_result.changes) do
+      local target_line = mapping.original.start_line
+      if target_line > current_line then
+        pcall(vim.api.nvim_win_set_cursor, 0, {target_line, 0})
+        return
+      end
+    end
+    
+    -- Wrap around to first hunk
+    local first_hunk = diff_result.changes[1]
+    pcall(vim.api.nvim_win_set_cursor, 0, {first_hunk.original.start_line, 0})
+  end
+  
+  local function navigate_prev_hunk()
+    local session = lifecycle.get_session(tabpage)
+    if not session or not session.stored_diff_result then
+      return
+    end
+    
+    local diff_result = session.stored_diff_result
+    if #diff_result.changes == 0 then
+      return
+    end
+    
+    -- Get current cursor position
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local current_line = cursor[1]
+    
+    -- Find previous hunk before current line (search backwards)
+    for i = #diff_result.changes, 1, -1 do
+      local mapping = diff_result.changes[i]
+      local target_line = mapping.original.start_line
+      if target_line < current_line then
+        pcall(vim.api.nvim_win_set_cursor, 0, {target_line, 0})
+        return
+      end
+    end
+    
+    -- Wrap around to last hunk
+    local last_hunk = diff_result.changes[#diff_result.changes]
+    pcall(vim.api.nvim_win_set_cursor, 0, {last_hunk.original.start_line, 0})
+  end
+  
+  local map_opts = { noremap = true, silent = true, nowait = true }
+  
+  vim.keymap.set('n', ']c', navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next hunk' }))
+  vim.keymap.set('n', '[c', navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous hunk' }))
+  vim.keymap.set('n', ']c', navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next hunk' }))
+  vim.keymap.set('n', '[c', navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous hunk' }))
+end
+
+-- Setup ]f and [f keymaps for explorer file navigation
+local function setup_explorer_navigation_keymaps(tabpage, original_bufnr, modified_bufnr)
+  local function navigate_next()
+    local explorer_obj = lifecycle.get_explorer(tabpage)
+    if not explorer_obj then
+      vim.notify("No explorer found for this tab", vim.log.levels.WARN)
+      return
+    end
+    local explorer = require('vscode-diff.render.explorer')
+    explorer.navigate_next(explorer_obj)
+  end
+  
+  local function navigate_prev()
+    local explorer_obj = lifecycle.get_explorer(tabpage)
+    if not explorer_obj then
+      vim.notify("No explorer found for this tab", vim.log.levels.WARN)
+      return
+    end
+    local explorer = require('vscode-diff.render.explorer')
+    explorer.navigate_prev(explorer_obj)
+  end
+  
+  -- Set keymaps on both diff buffers with proper opts
+  local map_opts = { noremap = true, silent = true, nowait = true }
+  
+  vim.keymap.set('n', ']f', navigate_next, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next file in explorer' }))
+  vim.keymap.set('n', '[f', navigate_prev, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous file in explorer' }))
+  vim.keymap.set('n', ']f', navigate_next, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next file in explorer' }))
+  vim.keymap.set('n', '[f', navigate_prev, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous file in explorer' }))
+end
+
 ---@param session_config SessionConfig Session configuration
 ---@param filetype? string Optional filetype for syntax highlighting
 ---@return table|nil Result containing diff metadata, or nil if deferred
-function M.create(original_lines, modified_lines, session_config, filetype)
-  -- Create new tab for standalone mode
-  if session_config.mode == "standalone" then
-    vim.cmd("tabnew")
-  end
+function M.create(session_config, filetype)
+  -- Create new tab (both modes create a tab)
+  vim.cmd("tabnew")
 
   local tabpage = vim.api.nvim_get_current_tabpage()
 
-  -- Determine if buffers are virtual based on revisions
-  local original_is_virtual = is_virtual_revision(session_config.original_revision)
-  local modified_is_virtual = is_virtual_revision(session_config.modified_revision)
+  -- For explorer mode with empty paths, create empty panes and skip buffer setup
+  local is_explorer_placeholder = session_config.mode == "explorer" and 
+                                   (session_config.original_path == "" or session_config.original_path == nil)
 
-  -- Prepare buffer information
-  local original_info = prepare_buffer(
-    original_is_virtual,
-    session_config.git_root,
-    session_config.original_revision,
-    session_config.original_path
-  )
-  local modified_info = prepare_buffer(
-    modified_is_virtual,
-    session_config.git_root,
-    session_config.modified_revision,
-    session_config.modified_path
-  )
-
-  -- Determine if we need to wait for virtual file content to load
-  local has_virtual_buffer = original_is_virtual or modified_is_virtual
-
-  -- Create side-by-side windows in CURRENT tab (caller should have created new tab if needed)
-  local initial_buf = vim.api.nvim_get_current_buf()
-  local original_win = vim.api.nvim_get_current_win()
-
-  -- Load original buffer/window
-  if original_info.needs_edit then
-    vim.cmd("edit " .. vim.fn.fnameescape(original_info.target))
-    original_info.bufnr = vim.api.nvim_get_current_buf()
+  local original_win, modified_win, original_info, modified_info, initial_buf
+  
+  if is_explorer_placeholder then
+    -- Explorer mode: Create empty split panes, skip buffer loading
+    -- Explorer will populate via first file selection
+    initial_buf = vim.api.nvim_get_current_buf()
+    original_win = vim.api.nvim_get_current_win()
+    vim.cmd("vsplit")
+    modified_win = vim.api.nvim_get_current_win()
+    
+    -- Create placeholder buffer info (will be updated by explorer)
+    original_info = { bufnr = vim.api.nvim_win_get_buf(original_win) }
+    modified_info = { bufnr = vim.api.nvim_win_get_buf(modified_win) }
   else
-    vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
-  end
+    -- Normal mode: Full buffer setup
+    local original_is_virtual = is_virtual_revision(session_config.original_revision)
+    local modified_is_virtual = is_virtual_revision(session_config.modified_revision)
 
-  vim.cmd("vsplit")
-  local modified_win = vim.api.nvim_get_current_win()
+    original_info = prepare_buffer(
+      original_is_virtual,
+      session_config.git_root,
+      session_config.original_revision,
+      session_config.original_path
+    )
+    modified_info = prepare_buffer(
+      modified_is_virtual,
+      session_config.git_root,
+      session_config.modified_revision,
+      session_config.modified_path
+    )
 
-  -- Load modified buffer/window
-  if modified_info.needs_edit then
-    vim.cmd("edit " .. vim.fn.fnameescape(modified_info.target))
-    modified_info.bufnr = vim.api.nvim_get_current_buf()
-  else
-    vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+    initial_buf = vim.api.nvim_get_current_buf()
+    original_win = vim.api.nvim_get_current_win()
+
+    -- Load original buffer
+    if original_info.needs_edit then
+      vim.cmd("edit " .. vim.fn.fnameescape(original_info.target))
+      original_info.bufnr = vim.api.nvim_get_current_buf()
+    else
+      vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+    end
+
+    vim.cmd("vsplit")
+    modified_win = vim.api.nvim_get_current_win()
+
+    -- Load modified buffer
+    if modified_info.needs_edit then
+      vim.cmd("edit " .. vim.fn.fnameescape(modified_info.target))
+      modified_info.bufnr = vim.api.nvim_get_current_buf()
+    else
+      vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+    end
   end
 
   -- Clean up initial buffer
@@ -202,7 +313,6 @@ function M.create(original_lines, modified_lines, session_config, filetype)
     relativenumber = false,
     cursorline = true,
     wrap = false,
-    winbar = "",  -- Disable winbar to ensure alignment between windows
   }
 
   for opt, val in pairs(win_opts) do
@@ -213,44 +323,74 @@ function M.create(original_lines, modified_lines, session_config, filetype)
   -- Note: Filetype is automatically detected when using :edit for real files
   -- For virtual files, filetype is set in the virtual_file module
 
-  -- Set up rendering after buffers are ready
-  -- For virtual files, we wait for VscodeDiffVirtualFileLoaded event
-  local render_everything = function()
-    local lines_diff = compute_and_render(
-      original_info.bufnr, modified_info.bufnr,
-      original_lines, modified_lines,
-      original_is_virtual, modified_is_virtual,
-      original_win, modified_win,
-      true  -- auto_scroll_to_first_hunk = true on create
+  -- For explorer placeholder, create minimal session without rendering
+  if is_explorer_placeholder then
+    -- Create minimal lifecycle session for explorer (update will populate it)
+    lifecycle.create_session(
+      tabpage,
+      session_config.mode,
+      session_config.git_root,
+      "",  -- Empty paths indicate placeholder
+      "",
+      nil,
+      nil,
+      original_info.bufnr,
+      modified_info.bufnr,
+      original_win,
+      modified_win,
+      {}  -- Empty diff result - will be updated on first file selection
     )
-
-    if lines_diff then
-      -- Create complete lifecycle session (one step!)
-      lifecycle.create_session(
-        tabpage,
-        session_config.mode,
-        session_config.git_root,
-        session_config.original_path,
-        session_config.modified_path,
-        session_config.original_revision,
-        session_config.modified_revision,
-        original_info.bufnr,
-        modified_info.bufnr,
-        original_win,
-        modified_win,
-        lines_diff
+  else
+    -- Normal mode: Full rendering
+    local has_virtual_buffer = is_virtual_revision(session_config.original_revision) or 
+                                is_virtual_revision(session_config.modified_revision)
+    local original_is_virtual = is_virtual_revision(session_config.original_revision)
+    local modified_is_virtual = is_virtual_revision(session_config.modified_revision)
+    
+    -- Set up rendering after buffers are ready
+    local render_everything = function()
+      -- Always read from buffers (single source of truth)
+      local original_lines = vim.api.nvim_buf_get_lines(original_info.bufnr, 0, -1, false)
+      local modified_lines = vim.api.nvim_buf_get_lines(modified_info.bufnr, 0, -1, false)
+      
+      local lines_diff = compute_and_render(
+        original_info.bufnr, modified_info.bufnr,
+        original_lines, modified_lines,
+        original_is_virtual, modified_is_virtual,
+        original_win, modified_win,
+        true  -- auto_scroll_to_first_hunk = true on create
       )
 
-      -- Enable auto-refresh for real file buffers only
-      setup_auto_refresh(original_info.bufnr, modified_info.bufnr, original_is_virtual, modified_is_virtual)
+      if lines_diff then
+        -- Create complete lifecycle session (one step!)
+        lifecycle.create_session(
+          tabpage,
+          session_config.mode,
+          session_config.git_root,
+          session_config.original_path,
+          session_config.modified_path,
+          session_config.original_revision,
+          session_config.modified_revision,
+          original_info.bufnr,
+          modified_info.bufnr,
+          original_win,
+          modified_win,
+          lines_diff
+        )
 
-      -- Setup auto-sync on file switch (after session is complete!)
-      lifecycle.setup_auto_sync_on_file_switch(tabpage, original_is_virtual, modified_is_virtual)
+        -- Enable auto-refresh for real file buffers only
+        setup_auto_refresh(original_info.bufnr, modified_info.bufnr, original_is_virtual, modified_is_virtual)
+        
+        -- Setup hunk navigation keymaps (]c/[c)
+        setup_hunk_navigation_keymaps(tabpage, original_info.bufnr, modified_info.bufnr)
+
+        -- Setup auto-sync on file switch (after session is complete!)
+        lifecycle.setup_auto_sync_on_file_switch(tabpage, original_is_virtual, modified_is_virtual)
+      end
     end
-  end
 
-  -- Choose timing based on buffer types
-  if has_virtual_buffer then
+    -- Choose timing based on buffer types
+    if has_virtual_buffer then
     -- Virtual file(s): Wait for BufReadCmd to load content
     -- Track which virtual buffers have loaded
     local loaded_buffers = {}
@@ -286,9 +426,35 @@ function M.create(original_lines, modified_lines, session_config, filetype)
         end
       end,
     })
-  else
-    -- Real files only: Defer until :edit completes
-    vim.schedule(render_everything)
+    else
+      -- Real files only: Defer until :edit completes
+      vim.schedule(render_everything)
+    end
+  end
+
+  -- For explorer mode, create the explorer sidebar after diff windows are set up
+  if session_config.mode == "explorer" and session_config.explorer_data then
+    -- Calculate explorer width: 20% of terminal width or 40 columns, whichever is smaller (matches neo-tree default)
+    local total_width = vim.o.columns
+    local explorer_width = math.min(40, math.floor(total_width * 0.2))
+    
+    -- Create explorer in left sidebar (explorer manages its own lifecycle and callbacks)
+    local explorer = require('vscode-diff.render.explorer')
+    local status_result = session_config.explorer_data.status_result
+    
+    local explorer_obj = explorer.create(status_result, session_config.git_root, tabpage, explorer_width, session_config.original_revision)
+    
+    -- Store explorer reference in lifecycle
+    lifecycle.set_explorer(tabpage, explorer_obj)
+    
+    -- Note: Keymaps will be set when first file is selected via update()
+    
+    -- After explorer is created, adjust diff window widths to be equal
+    local remaining_width = total_width - explorer_width
+    local diff_width = math.floor(remaining_width / 2)
+    
+    vim.api.nvim_win_set_width(original_win, diff_width)
+    vim.api.nvim_win_set_width(modified_win, diff_width)
   end
 
   return {
@@ -301,11 +467,10 @@ end
 
 ---Update existing diff view with new files/revisions
 ---@param tabpage number Tabpage ID of the diff session
----@param original_lines string[] New lines for original buffer
----@param modified_lines string[] New lines for modified buffer
 ---@param session_config SessionConfig New session configuration (updates both sides)
+---@param auto_scroll_to_first_hunk boolean? Whether to auto-scroll to first hunk (default: false)
 ---@return boolean success Whether update succeeded
-function M.update(tabpage, original_lines, modified_lines, session_config)
+function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
 
   -- Get existing session
   local session = lifecycle.get_session(tabpage)
@@ -349,7 +514,37 @@ function M.update(tabpage, original_lines, modified_lines, session_config)
     session_config.modified_path
   )
 
-  -- Set focus to original window and load buffer
+  -- CRITICAL: If the buffer we want to load already exists and is displayed in OTHER diff window,
+  -- we need to replace that window's buffer FIRST before :edit, otherwise :edit will reuse it
+  -- This fixes the bug where same file in staged+unstaged shows same buffer in both windows
+  
+  local buffers_to_delete = {}
+  
+  -- Check if original window's target buffer is currently in modified window
+  if original_info.needs_edit then
+    local existing = vim.fn.bufnr(original_info.target)
+    if existing ~= -1 and existing == old_modified_buf then
+      -- Replace modified window with empty buffer first
+      vim.api.nvim_set_current_win(modified_win)
+      vim.cmd("enew")
+      table.insert(buffers_to_delete, old_modified_buf)
+      old_modified_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+    end
+  end
+  
+  -- Check if modified window's target buffer is currently in original window
+  if modified_info.needs_edit then
+    local existing = vim.fn.bufnr(modified_info.target)
+    if existing ~= -1 and existing == old_original_buf then
+      -- Replace original window with empty buffer first
+      vim.api.nvim_set_current_win(original_win)
+      vim.cmd("enew")
+      table.insert(buffers_to_delete, old_original_buf)
+      old_original_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+    end
+  end
+
+  -- Now load buffers - :edit will create fresh buffers since we replaced conflicting ones
   vim.api.nvim_set_current_win(original_win)
   if original_info.needs_edit then
     vim.cmd("edit " .. vim.fn.fnameescape(original_info.target))
@@ -358,13 +553,17 @@ function M.update(tabpage, original_lines, modified_lines, session_config)
     vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
   end
 
-  -- Set focus to modified window and load buffer
   vim.api.nvim_set_current_win(modified_win)
   if modified_info.needs_edit then
     vim.cmd("edit " .. vim.fn.fnameescape(modified_info.target))
     modified_info.bufnr = vim.api.nvim_get_current_buf()
   else
     vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+  end
+  
+  -- Delete the old buffers we replaced (after windows have new content)
+  for _, buf in ipairs(buffers_to_delete) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end
 
   -- Update lifecycle session metadata
@@ -386,13 +585,19 @@ function M.update(tabpage, original_lines, modified_lines, session_config)
   local has_virtual_buffer = original_is_virtual or modified_is_virtual
 
   local render_everything = function()
+    -- Always read from buffers (single source of truth)
+    local original_lines = vim.api.nvim_buf_get_lines(original_info.bufnr, 0, -1, false)
+    local modified_lines = vim.api.nvim_buf_get_lines(modified_info.bufnr, 0, -1, false)
+    
     -- Compute and render (scrollbind will be handled inside)
+    -- Use the provided auto_scroll parameter, default to false if not specified
+    local should_auto_scroll = auto_scroll_to_first_hunk == true
     local lines_diff = compute_and_render(
       original_info.bufnr, modified_info.bufnr,
       original_lines, modified_lines,
       original_is_virtual, modified_is_virtual,
       original_win, modified_win,
-      false  -- auto_scroll_to_first_hunk = false on update (preserve cursor!)
+      should_auto_scroll
     )
 
     if lines_diff then
@@ -409,6 +614,14 @@ function M.update(tabpage, original_lines, modified_lines, session_config)
 
       -- Re-enable auto-refresh for real file buffers
       setup_auto_refresh(original_info.bufnr, modified_info.bufnr, original_is_virtual, modified_is_virtual)
+      
+      -- Setup hunk navigation keymaps (]c/[c)
+      setup_hunk_navigation_keymaps(tabpage, original_info.bufnr, modified_info.bufnr)
+      
+      -- Setup explorer navigation keymaps if in explorer mode
+      if session.mode == "explorer" then
+        setup_explorer_navigation_keymaps(tabpage, original_info.bufnr, modified_info.bufnr)
+      end
     end
   end
 

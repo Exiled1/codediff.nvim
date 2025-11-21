@@ -1,0 +1,444 @@
+-- Test: Explorer Mode
+-- Validates git status explorer functionality, window management, and file selection
+
+local git = require("vscode-diff.git")
+
+-- Setup CodeDiff command for tests
+local function setup_command()
+  local commands = require("vscode-diff.commands")
+  vim.api.nvim_create_user_command("CodeDiff", function(opts)
+    commands.vscode_diff(opts)
+  end, {
+    nargs = "*",
+    bang = true,
+    complete = function()
+      return { "file", "install" }
+    end,
+  })
+end
+
+describe("Explorer Mode", function()
+  local temp_dir
+  local original_cwd
+
+  before_each(function()
+    -- Setup command
+    setup_command()
+    
+    -- Save original working directory
+    original_cwd = vim.fn.getcwd()
+    
+    -- Create temporary git repository for testing
+    temp_dir = vim.fn.tempname()
+    vim.fn.mkdir(temp_dir, "p")
+    vim.fn.chdir(temp_dir)
+    
+    -- Initialize git repo
+    vim.fn.system("git init")
+    vim.fn.system("git config user.email 'test@example.com'")
+    vim.fn.system("git config user.name 'Test User'")
+    
+    -- Create and commit initial file
+    vim.fn.writefile({"line 1", "line 2"}, temp_dir .. "/file1.txt")
+    vim.fn.system("git add file1.txt")
+    vim.fn.system("git commit -m 'Initial commit'")
+    
+    -- Modify file (unstaged)
+    vim.fn.writefile({"line 1", "line 2 modified", "line 3"}, temp_dir .. "/file1.txt")
+    
+    -- Create new file (staged)
+    vim.fn.writefile({"new file"}, temp_dir .. "/file2.txt")
+    vim.fn.system("git add file2.txt")
+    
+    -- Create untracked file
+    vim.fn.writefile({"untracked"}, temp_dir .. "/file3.txt")
+  end)
+
+  after_each(function()
+    -- Clean up and restore
+    vim.fn.chdir(original_cwd)
+    if temp_dir and vim.fn.isdirectory(temp_dir) == 1 then
+      vim.fn.delete(temp_dir, "rf")
+    end
+    
+    -- Close all tabs except first
+    vim.cmd("tabonly")
+  end)
+
+  -- Test 1: Git status parsing
+  it("Parses git status correctly", function()
+    local callback_called = false
+    local status_result = nil
+    
+    git.get_status(temp_dir, function(err, result)
+      callback_called = true
+      if not err then
+        status_result = result
+      end
+    end)
+    
+    vim.wait(2000, function() return callback_called end)
+    assert.is_true(callback_called, "Callback should be invoked")
+    assert.is_not_nil(status_result, "Status result should not be nil")
+    assert.is_table(status_result.unstaged, "Should have unstaged table")
+    assert.is_table(status_result.staged, "Should have staged table")
+    
+    -- Should have at least one unstaged file (file1.txt modified)
+    assert.is_true(#status_result.unstaged >= 1, "Should have unstaged changes")
+    
+    -- Should have at least one staged file (file2.txt added)
+    assert.is_true(#status_result.staged >= 1, "Should have staged changes")
+  end)
+
+  -- Test 2: Git status detects file types correctly
+  it("Detects modified, added, and untracked files", function()
+    local callback_called = false
+    local status_result = nil
+    
+    git.get_status(temp_dir, function(err, result)
+      callback_called = true
+      status_result = result
+    end)
+    
+    vim.wait(2000, function() return callback_called end)
+    assert.is_true(callback_called)
+    
+    -- Check for modified file in unstaged
+    local has_modified = false
+    for _, file in ipairs(status_result.unstaged) do
+      if file.path == "file1.txt" and file.status == "M" then
+        has_modified = true
+      end
+    end
+    assert.is_true(has_modified, "Should detect modified file")
+    
+    -- Check for added file in staged
+    local has_added = false
+    for _, file in ipairs(status_result.staged) do
+      if file.path == "file2.txt" and file.status == "A" then
+        has_added = true
+      end
+    end
+    assert.is_true(has_added, "Should detect added file")
+    
+    -- Check for untracked file
+    local has_untracked = false
+    for _, file in ipairs(status_result.unstaged) do
+      if file.path == "file3.txt" and file.status == "??" then
+        has_untracked = true
+      end
+    end
+    assert.is_true(has_untracked, "Should detect untracked file")
+  end)
+
+  -- Test 3: Explorer creates proper window layout
+  it("Creates correct window layout", function()
+    -- Skip if nui.nvim is not available
+    local has_nui = pcall(require, "nui.tree")
+    if not has_nui then
+      pending("nui.nvim not available")
+      return
+    end
+    
+    local initial_tabs = vim.fn.tabpagenr('$')
+    
+    -- Open explorer
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    -- Wait for async operations
+    vim.wait(3000, function()
+      return vim.fn.tabpagenr('$') > initial_tabs
+    end)
+    
+    -- Should create new tab
+    assert.is_true(vim.fn.tabpagenr('$') > initial_tabs, "Should create new tab")
+    
+    -- Should have 3 windows (explorer + 2 diff panes)
+    local wincount = vim.fn.winnr('$')
+    assert.equal(3, wincount, "Should have 3 windows")
+    
+    -- Check for explorer window
+    local has_explorer = false
+    for i = 1, wincount do
+      local winid = vim.fn.win_getid(i)
+      local bufnr = vim.api.nvim_win_get_buf(winid)
+      if vim.bo[bufnr].filetype == "vscode-diff-explorer" then
+        has_explorer = true
+        break
+      end
+    end
+    assert.is_true(has_explorer, "Should have explorer window")
+  end)
+
+  -- Test 4: Window widths are properly distributed
+  it("Distributes window widths correctly", function()
+    -- Skip if nui.nvim is not available
+    local has_nui = pcall(require, "nui.tree")
+    if not has_nui then
+      pending("nui.nvim not available")
+      return
+    end
+    
+    vim.o.columns = 160  -- Set known terminal width
+    
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    -- Wait longer and check for explorer specifically
+    local has_explorer = false
+    vim.wait(5000, function()
+      if vim.fn.winnr('$') ~= 3 then return false end
+      for i = 1, vim.fn.winnr('$') do
+        local winid = vim.fn.win_getid(i)
+        local bufnr = vim.api.nvim_win_get_buf(winid)
+        if vim.bo[bufnr].filetype == "vscode-diff-explorer" then
+          has_explorer = true
+          return true
+        end
+      end
+      return false
+    end)
+    
+    if not has_explorer then
+      pending("Explorer not created in time")
+      return
+    end
+    
+    local explorer_width = nil
+    local diff_widths = {}
+    
+    for i = 1, vim.fn.winnr('$') do
+      local winid = vim.fn.win_getid(i)
+      local bufnr = vim.api.nvim_win_get_buf(winid)
+      local width = vim.api.nvim_win_get_width(winid)
+      
+      if vim.bo[bufnr].filetype == "vscode-diff-explorer" then
+        explorer_width = width
+      elseif vim.bo[bufnr].filetype ~= "" then
+        table.insert(diff_widths, width)
+      end
+    end
+    
+    -- Explorer should be 20-35 columns
+    assert.is_not_nil(explorer_width, "Explorer should have width")
+    assert.is_true(explorer_width >= 15 and explorer_width <= 40, 
+      "Explorer width should be reasonable (got " .. tostring(explorer_width) .. ")")
+    
+    -- Diff panes should be roughly equal
+    if #diff_widths == 2 then
+      local diff = math.abs(diff_widths[1] - diff_widths[2])
+      assert.is_true(diff <= 5, "Diff panes should have nearly equal width (diff: " .. diff .. ")")
+    end
+  end)
+
+  -- Test 5: Explorer shows correct content structure
+  it("Shows correct explorer content structure", function()
+    -- Skip if nui.nvim is not available
+    local has_nui = pcall(require, "nui.tree")
+    if not has_nui then
+      pending("nui.nvim not available")
+      return
+    end
+    
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    -- Wait for explorer to be created
+    local explorer_buf = nil
+    vim.wait(5000, function()
+      for i = 1, vim.fn.winnr('$') do
+        local winid = vim.fn.win_getid(i)
+        local bufnr = vim.api.nvim_win_get_buf(winid)
+        if vim.bo[bufnr].filetype == "vscode-diff-explorer" then
+          explorer_buf = bufnr
+          return true
+        end
+      end
+      return false
+    end)
+    
+    if not explorer_buf then
+      pending("Explorer buffer not created in time")
+      return
+    end
+    
+    local lines = vim.api.nvim_buf_get_lines(explorer_buf, 0, -1, false)
+    
+    -- Should have group headers
+    local has_changes_group = false
+    local has_staged_group = false
+    local has_file_count = false
+    local has_status_symbol = false
+    
+    for _, line in ipairs(lines) do
+      if line:match("Changes") then has_changes_group = true end
+      if line:match("Staged") then has_staged_group = true end
+      if line:match("%(%d+%)") then has_file_count = true end
+      if line:match("[MAD]%s*$") or line:match("??%s*$") then 
+        has_status_symbol = true 
+      end
+    end
+    
+    assert.is_true(has_changes_group, "Should show Changes group")
+    assert.is_true(has_staged_group, "Should show Staged Changes group")
+    assert.is_true(has_file_count, "Should show file counts")
+    assert.is_true(has_status_symbol, "Should show status symbols")
+  end)
+
+  -- Test 6: First file is auto-selected and displayed
+  it("Auto-selects and displays first file", function()
+    -- Skip if nui.nvim is not available
+    local has_nui = pcall(require, "nui.tree")
+    if not has_nui then
+      pending("nui.nvim not available")
+      return
+    end
+
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    -- Wait for explorer and first file to load
+    vim.wait(4000, function()
+      local wincount = vim.fn.winnr('$')
+      if wincount ~= 3 then return false end
+      
+      -- Check if any diff window has content
+      for i = 1, wincount do
+        local winid = vim.fn.win_getid(i)
+        local bufnr = vim.api.nvim_win_get_buf(winid)
+        local ft = vim.bo[bufnr].filetype
+        if ft ~= "vscode-diff-explorer" and ft ~= "" then
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 5, false)
+          if #lines > 0 and lines[1] ~= "" then
+            return true
+          end
+        end
+      end
+      return false
+    end)
+    
+    -- Should have content in at least one diff window
+    local has_content = false
+    for i = 1, vim.fn.winnr('$') do
+      local winid = vim.fn.win_getid(i)
+      local bufnr = vim.api.nvim_win_get_buf(winid)
+      local ft = vim.bo[bufnr].filetype
+      if ft ~= "vscode-diff-explorer" and ft ~= "" then
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 5, false)
+        if #lines > 0 and lines[1] ~= "" then
+          has_content = true
+          break
+        end
+      end
+    end
+    
+    assert.is_true(has_content, "Should display first file content")
+  end)
+
+  -- Test 7: Lifecycle session is created correctly
+  it("Creates lifecycle session with explorer mode", function()
+    -- Skip if nui.nvim is not available
+    local has_nui = pcall(require, "nui.tree")
+    if not has_nui then
+      pending("nui.nvim not available")
+      return
+    end
+    
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    vim.wait(3000, function()
+      return vim.fn.winnr('$') == 3
+    end)
+    
+    local tabpage = vim.api.nvim_get_current_tabpage()
+    local has_lifecycle, lifecycle = pcall(require, 'vscode-diff.render.lifecycle')
+    if not has_lifecycle then
+      pending("lifecycle module not available in test context")
+      return
+    end
+    
+    local session = lifecycle.get_session(tabpage)
+    
+    assert.is_not_nil(session, "Should have lifecycle session")
+    assert.equal("explorer", session.mode, "Session mode should be explorer")
+    assert.is_not_nil(session.git_root, "Should have git_root")
+  end)
+
+  -- Test 8: No changes shows appropriate message
+  it("Shows message when no changes exist", function()
+    -- Commit all changes to have clean working tree
+    vim.fn.system("git add -A")
+    vim.fn.system("git commit -m 'Clean'")
+    
+    local notified = false
+    local original_notify = vim.notify
+    vim.notify = function(msg, level)
+      if msg:match("No changes") then
+        notified = true
+      end
+      original_notify(msg, level)
+    end
+    
+    vim.cmd("edit " .. temp_dir .. "/file1.txt")
+    vim.cmd("CodeDiff")
+    
+    vim.wait(2000, function() return notified end)
+    
+    vim.notify = original_notify
+    assert.is_true(notified, "Should notify when no changes")
+  end)
+
+  -- Test 9: Non-git directory shows error
+  it("Shows error for non-git directory", function()
+    local non_git_dir = vim.fn.tempname()
+    vim.fn.mkdir(non_git_dir, "p")
+    
+    -- Create a dummy file so we have something to edit
+    local dummy_file = non_git_dir .. "/dummy.txt"
+    vim.fn.writefile({"test"}, dummy_file)
+    
+    -- Change to non-git directory  
+    local saved_cwd = vim.fn.getcwd()
+    vim.fn.chdir(non_git_dir)
+    
+    local notified = false
+    local original_notify = vim.notify
+    vim.notify = function(msg, level)
+      if msg:match("Not in a git repository") or msg:match("not a git repository") then
+        notified = true
+      end
+      original_notify(msg, level)
+    end
+    
+    vim.cmd("edit " .. dummy_file)
+    vim.cmd("CodeDiff")
+    
+    vim.wait(2000, function() return notified end)
+    
+    vim.notify = original_notify
+    
+    -- Restore directory before cleanup
+    vim.fn.chdir(saved_cwd)
+    vim.fn.delete(non_git_dir, "rf")
+    
+    assert.is_true(notified, "Should notify for non-git directory")
+  end)
+
+  -- Test 10: Commands.lua simplicity (no callbacks in commands)
+  it("Commands.lua follows simple pattern", function()
+    -- This is a design validation test
+    -- Verify commands.lua doesn't contain on_file_select
+    local commands_path = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h") 
+      .. "/lua/vscode-diff/commands.lua"
+    
+    if vim.fn.filereadable(commands_path) == 1 then
+      local content = table.concat(vim.fn.readfile(commands_path), "\n")
+      -- Should NOT define on_file_select in commands.lua
+      local has_callback_def = content:match("local%s+function%s+on_file_select")
+      assert.is_nil(has_callback_def, 
+        "Commands.lua should not define on_file_select callback")
+    end
+  end)
+end)

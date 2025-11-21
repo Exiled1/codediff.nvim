@@ -246,4 +246,109 @@ function M.get_file_content(revision, git_root, rel_path, callback)
   )
 end
 
+-- Get git status for current repository (async)
+-- git_root: absolute path to git repository root
+-- callback: function(err, status_result) where status_result is:
+-- {
+--   unstaged = { { path = "file.txt", status = "M"|"A"|"D"|"??" } },
+--   staged = { { path = "file.txt", status = "M"|"A"|"D" } }
+-- }
+function M.get_status(git_root, callback)
+  run_git_async(
+    { "status", "--porcelain", "-uall", "-M" },  -- -M to detect renames
+    { cwd = git_root },
+    function(err, output)
+      if err then
+        callback(err, nil)
+        return
+      end
+
+      local result = {
+        unstaged = {},
+        staged = {}
+      }
+
+      for line in output:gmatch("[^\r\n]+") do
+        if #line >= 3 then
+          local index_status = line:sub(1, 1)
+          local worktree_status = line:sub(2, 2)
+          local path_part = line:sub(4)
+
+          -- Handle renames: "old_path -> new_path"
+          local old_path, new_path = path_part:match("^(.+) %-> (.+)$")
+          local path = old_path and new_path or path_part  -- Use new_path for display if rename
+          local is_rename = old_path ~= nil
+
+          -- Staged changes (index has changes)
+          if index_status ~= " " and index_status ~= "?" then
+            table.insert(result.staged, {
+              path = path,
+              status = index_status,
+              old_path = is_rename and old_path or nil,  -- Store old path if rename
+            })
+          end
+
+          -- Unstaged changes (worktree has changes)
+          if worktree_status ~= " " then
+            table.insert(result.unstaged, {
+              path = path,
+              status = worktree_status == "?" and "??" or worktree_status,
+              old_path = is_rename and old_path or nil,
+            })
+          end
+        end
+      end
+
+      callback(nil, result)
+    end
+  )
+end
+
+-- Get diff between a revision and working tree (async)
+-- revision: git revision (e.g., "HEAD", "HEAD~1", commit hash, branch name)
+-- git_root: absolute path to git repository root
+-- callback: function(err, status_result) where status_result has same format as get_status
+function M.get_diff_revision(revision, git_root, callback)
+  run_git_async(
+    { "diff", "--name-status", "-M", revision },
+    { cwd = git_root },
+    function(err, output)
+      if err then
+        callback(err, nil)
+        return
+      end
+
+      local result = {
+        unstaged = {},
+        staged = {}
+      }
+
+      for line in output:gmatch("[^\r\n]+") do
+        if #line > 0 then
+          local parts = vim.split(line, "\t")
+          if #parts >= 2 then
+            local status = parts[1]:sub(1, 1)
+            local path = parts[2]
+            local old_path = nil
+
+            -- Handle renames (R100 or similar)
+            if status == "R" and #parts >= 3 then
+              old_path = parts[2]
+              path = parts[3]
+            end
+
+            table.insert(result.unstaged, {
+              path = path,
+              status = status,
+              old_path = old_path,
+            })
+          end
+        end
+      end
+
+      callback(nil, result)
+    end
+  )
+end
+
 return M
