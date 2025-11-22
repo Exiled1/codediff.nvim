@@ -170,6 +170,7 @@ function M.get_git_root(file_path, callback)
       else
         local git_root = vim.trim(output)
         git_root = git_root:gsub("\\", "/")
+        print("DEBUG: get_git_root found: " .. git_root)
         callback(nil, git_root)
       end
     end
@@ -190,6 +191,7 @@ end
 -- git_root: absolute path to git repository root
 -- callback: function(err, commit_hash)
 function M.resolve_revision(revision, git_root, callback)
+  print("DEBUG: resolve_revision " .. revision .. " in " .. git_root)
   run_git_async(
     { "rev-parse", "--verify", revision },
     { cwd = git_root },
