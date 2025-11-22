@@ -83,6 +83,13 @@ local function run_git_async(args, opts, callback)
 
   -- Use vim.system if available (Neovim 0.10+)
   if vim.system then
+    -- On Windows, vim.system requires that cwd exists before running the command
+    -- Validate the directory exists to provide a better error message
+    if opts.cwd and vim.fn.isdirectory(opts.cwd) == 0 then
+      callback("Directory does not exist: " .. opts.cwd, nil)
+      return
+    end
+
     vim.system(
       vim.list_extend({ "git" }, args),
       {
@@ -99,6 +106,12 @@ local function run_git_async(args, opts, callback)
     )
   else
     -- Fallback to vim.loop.spawn for older Neovim versions
+    -- Validate the directory exists to provide a better error message
+    if opts.cwd and vim.fn.isdirectory(opts.cwd) == 0 then
+      callback("Directory does not exist: " .. opts.cwd, nil)
+      return
+    end
+
     local stdout_data = {}
     local stderr_data = {}
 
@@ -159,6 +172,7 @@ end
 -- callback: function(err, git_root)
 function M.get_git_root(file_path, callback)
   local dir = vim.fn.fnamemodify(file_path, ":h")
+  -- Normalize path separators for consistency
   dir = dir:gsub("\\", "/")
 
   run_git_async(
@@ -169,7 +183,14 @@ function M.get_git_root(file_path, callback)
         callback("Not in a git repository", nil)
       else
         local git_root = vim.trim(output)
+        -- Resolve full path to handle short paths/symlinks and normalize
+        git_root = vim.fn.fnamemodify(git_root, ":p")
+        -- Ensure git_root uses forward slashes for consistency
         git_root = git_root:gsub("\\", "/")
+        -- Remove trailing slash if present (fnamemodify :p adds it on some systems)
+        if git_root:sub(-1) == "/" then
+          git_root = git_root:sub(1, -2)
+        end
         callback(nil, git_root)
       end
     end
@@ -323,6 +344,58 @@ function M.get_diff_revision(revision, git_root, callback)
         staged = {}
       }
 
+      for line in output:gmatch("[^\r\n]+") do
+        if #line > 0 then
+          local parts = vim.split(line, "\t")
+          if #parts >= 2 then
+            local status = parts[1]:sub(1, 1)
+            local path = parts[2]
+            local old_path = nil
+
+            -- Handle renames (R100 or similar)
+            if status == "R" and #parts >= 3 then
+              old_path = parts[2]
+              path = parts[3]
+            end
+
+            table.insert(result.unstaged, {
+              path = path,
+              status = status,
+              old_path = old_path,
+            })
+          end
+        end
+      end
+
+      callback(nil, result)
+    end
+  )
+end
+
+-- Get diff between two revisions (async)
+-- rev1: original revision (e.g., commit hash)
+-- rev2: modified revision (e.g., commit hash)
+-- git_root: absolute path to git repository root
+-- callback: function(err, status_result)
+function M.get_diff_revisions(rev1, rev2, git_root, callback)
+  run_git_async(
+    { "diff", "--name-status", "-M", rev1, rev2 },
+    { cwd = git_root },
+    function(err, output)
+      if err then
+        callback(err, nil)
+        return
+      end
+
+      local result = {
+        unstaged = {},
+        staged = {}
+      }
+
+      -- For revision comparison, we treat everything as "unstaged" for explorer compatibility
+      -- But to keep explorer compatible, we'll put them in 'staged' as they are committed changes
+      -- relative to each other.
+      
       for line in output:gmatch("[^\r\n]+") do
         if #line > 0 then
           local parts = vim.split(line, "\t")

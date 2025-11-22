@@ -14,6 +14,14 @@ virtual_file.setup()
 -- Setup highlights
 render.setup_highlights()
 
+-- Re-apply highlights on ColorScheme change
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("VscodeDiffHighlights", { clear = true }),
+  callback = function()
+    render.setup_highlights()
+  end,
+})
+
 -- Register user command with subcommand completion
 local function complete_codediff(arg_lead, cmd_line, cursor_pos)
   local args = vim.split(cmd_line, "%s+", { trimempty = true })

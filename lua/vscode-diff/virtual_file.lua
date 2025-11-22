@@ -72,6 +72,8 @@ function M.setup()
           if err then
             -- File doesn't exist in this revision (added/deleted file)
             -- Show empty buffer so diff can highlight the change
+            vim.bo[buf].modifiable = true
+            vim.bo[buf].readonly = false
             api.nvim_buf_set_lines(buf, 0, -1, false, {""})
             vim.bo[buf].modifiable = false
             vim.bo[buf].readonly = true
@@ -87,6 +89,8 @@ function M.setup()
           end
 
           -- Set the content
+          vim.bo[buf].modifiable = true
+          vim.bo[buf].readonly = false
           api.nvim_buf_set_lines(buf, 0, -1, false, lines)
           
           -- Make it read-only

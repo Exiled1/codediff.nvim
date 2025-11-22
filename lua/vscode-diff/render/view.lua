@@ -21,13 +21,24 @@ end
 -- - If needs :edit: { bufnr = nil, target = "path or url", needs_edit = true }
 local function prepare_buffer(is_virtual, git_root, revision, path)
   if is_virtual then
-    -- Virtual file: generate URL, need to :edit it
+    -- Virtual file: generate URL
     local virtual_url = virtual_file.create_url(git_root, revision, path)
-    return {
-      bufnr = nil,
-      target = virtual_url,
-      needs_edit = true,
-    }
+    -- Check if buffer already exists
+    local existing_buf = vim.fn.bufnr(virtual_url)
+    
+    if existing_buf ~= -1 then
+       return {
+         bufnr = existing_buf,
+         target = virtual_url,
+         needs_edit = true -- Always edit to force reload/switch
+       }
+    else
+       return {
+         bufnr = nil,
+         target = virtual_url,
+         needs_edit = true,
+       }
+    end
   else
     -- Real file: check if already loaded
     local existing_buf = vim.fn.bufnr(path)
@@ -83,7 +94,7 @@ local function compute_and_render(original_buf, modified_buf, original_lines, mo
   end
 
   -- Setup scrollbind synchronization (only if windows provided)
-  if original_win and modified_win then
+  if original_win and modified_win and vim.api.nvim_win_is_valid(original_win) and vim.api.nvim_win_is_valid(modified_win) then
     -- Save cursor position if we need to preserve it (on update)
     local saved_cursor = nil
     if not auto_scroll_to_first_hunk then
@@ -198,10 +209,15 @@ local function setup_hunk_navigation_keymaps(tabpage, original_bufnr, modified_b
   
   local map_opts = { noremap = true, silent = true, nowait = true }
   
-  vim.keymap.set('n', ']c', navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next hunk' }))
-  vim.keymap.set('n', '[c', navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous hunk' }))
-  vim.keymap.set('n', ']c', navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next hunk' }))
-  vim.keymap.set('n', '[c', navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous hunk' }))
+  if config.options.keymaps.view.next_hunk then
+    vim.keymap.set('n', config.options.keymaps.view.next_hunk, navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next hunk' }))
+    vim.keymap.set('n', config.options.keymaps.view.next_hunk, navigate_next_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next hunk' }))
+  end
+  
+  if config.options.keymaps.view.prev_hunk then
+    vim.keymap.set('n', config.options.keymaps.view.prev_hunk, navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous hunk' }))
+    vim.keymap.set('n', config.options.keymaps.view.prev_hunk, navigate_prev_hunk, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous hunk' }))
+  end
 end
 
 -- Setup ]f and [f keymaps for explorer file navigation
@@ -229,10 +245,15 @@ local function setup_explorer_navigation_keymaps(tabpage, original_bufnr, modifi
   -- Set keymaps on both diff buffers with proper opts
   local map_opts = { noremap = true, silent = true, nowait = true }
   
-  vim.keymap.set('n', ']f', navigate_next, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next file in explorer' }))
-  vim.keymap.set('n', '[f', navigate_prev, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous file in explorer' }))
-  vim.keymap.set('n', ']f', navigate_next, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next file in explorer' }))
-  vim.keymap.set('n', '[f', navigate_prev, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous file in explorer' }))
+  if config.options.keymaps.view.next_file then
+    vim.keymap.set('n', config.options.keymaps.view.next_file, navigate_next, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Next file in explorer' }))
+    vim.keymap.set('n', config.options.keymaps.view.next_file, navigate_next, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Next file in explorer' }))
+  end
+  
+  if config.options.keymaps.view.prev_file then
+    vim.keymap.set('n', config.options.keymaps.view.prev_file, navigate_prev, vim.tbl_extend('force', map_opts, { buffer = original_bufnr, desc = 'Previous file in explorer' }))
+    vim.keymap.set('n', config.options.keymaps.view.prev_file, navigate_prev, vim.tbl_extend('force', map_opts, { buffer = modified_bufnr, desc = 'Previous file in explorer' }))
+  end
 end
 
 ---@param session_config SessionConfig Session configuration
@@ -284,7 +305,8 @@ function M.create(session_config, filetype)
 
     -- Load original buffer
     if original_info.needs_edit then
-      vim.cmd("edit " .. vim.fn.fnameescape(original_info.target))
+      local cmd = original_is_virtual and "edit! " or "edit "
+      vim.cmd(cmd .. vim.fn.fnameescape(original_info.target))
       original_info.bufnr = vim.api.nvim_get_current_buf()
     else
       vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
@@ -295,7 +317,8 @@ function M.create(session_config, filetype)
 
     -- Load modified buffer
     if modified_info.needs_edit then
-      vim.cmd("edit " .. vim.fn.fnameescape(modified_info.target))
+      local cmd = modified_is_virtual and "edit! " or "edit "
+      vim.cmd(cmd .. vim.fn.fnameescape(modified_info.target))
       modified_info.bufnr = vim.api.nvim_get_current_buf()
     else
       vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
@@ -390,10 +413,11 @@ function M.create(session_config, filetype)
     end
 
     -- Choose timing based on buffer types
-    if has_virtual_buffer then
+    -- Since we force reload virtual files, we ALWAYS wait for the load event if virtual files exist
+    local has_virtual = original_is_virtual or modified_is_virtual
+
+    if has_virtual then
     -- Virtual file(s): Wait for BufReadCmd to load content
-    -- Track which virtual buffers have loaded
-    local loaded_buffers = {}
     local group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileHighlight_' .. tabpage, { clear = true })
 
     vim.api.nvim_create_autocmd('User', {
@@ -405,26 +429,42 @@ function M.create(session_config, filetype)
         local loaded_buf = event.data.buf
 
         -- Check if this is one of our virtual buffers
-        if (original_is_virtual and loaded_buf == original_info.bufnr) or
-           (modified_is_virtual and loaded_buf == modified_info.bufnr) then
-          loaded_buffers[loaded_buf] = true
-
-          -- Check if all virtual buffers are loaded
-          local all_loaded = true
-          if original_is_virtual and not loaded_buffers[original_info.bufnr] then
-            all_loaded = false
-          end
-          if modified_is_virtual and not loaded_buffers[modified_info.bufnr] then
-            all_loaded = false
-          end
-
-          -- Render once all virtual buffers are ready
-          if all_loaded then
-            vim.schedule(render_everything)
-            vim.api.nvim_del_augroup_by_id(group)
-          end
+        -- We don't need complex state tracking anymore because we know they WILL load
+        local all_loaded = true
+        
+        -- Check if original is virtual and loaded
+        if original_is_virtual then
+           -- We can't easily check "is loaded" without state, but we can check if THIS event matches
+           -- For simplicity in this event-driven model, we'll use a small state tracker just for this closure
         end
       end,
+    })
+    
+    -- Re-implementing the simple tracker locally
+    local loaded_buffers = {}
+    
+    vim.api.nvim_create_autocmd('User', {
+      group = group,
+      pattern = 'VscodeDiffVirtualFileLoaded',
+      callback = function(event)
+        if not event.data or not event.data.buf then return end
+        local loaded_buf = event.data.buf
+        
+        if (original_is_virtual and loaded_buf == original_info.bufnr) or
+           (modified_is_virtual and loaded_buf == modified_info.bufnr) then
+           
+           loaded_buffers[loaded_buf] = true
+           
+           local ready = true
+           if original_is_virtual and not loaded_buffers[original_info.bufnr] then ready = false end
+           if modified_is_virtual and not loaded_buffers[modified_info.bufnr] then ready = false end
+           
+           if ready then
+             vim.schedule(render_everything)
+             vim.api.nvim_del_augroup_by_id(group)
+           end
+        end
+      end
     })
     else
       -- Real files only: Defer until :edit completes
@@ -442,7 +482,7 @@ function M.create(session_config, filetype)
     local explorer = require('vscode-diff.render.explorer')
     local status_result = session_config.explorer_data.status_result
     
-    local explorer_obj = explorer.create(status_result, session_config.git_root, tabpage, explorer_width, session_config.original_revision)
+    local explorer_obj = explorer.create(status_result, session_config.git_root, tabpage, explorer_width, session_config.original_revision, session_config.modified_revision)
     
     -- Store explorer reference in lifecycle
     lifecycle.set_explorer(tabpage, explorer_obj)
@@ -525,10 +565,12 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
     local existing = vim.fn.bufnr(original_info.target)
     if existing ~= -1 and existing == old_modified_buf then
       -- Replace modified window with empty buffer first
-      vim.api.nvim_set_current_win(modified_win)
-      vim.cmd("enew")
-      table.insert(buffers_to_delete, old_modified_buf)
-      old_modified_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+      if vim.api.nvim_win_is_valid(modified_win) then
+        vim.api.nvim_set_current_win(modified_win)
+        vim.cmd("enew")
+        table.insert(buffers_to_delete, old_modified_buf)
+        old_modified_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+      end
     end
   end
   
@@ -537,28 +579,38 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
     local existing = vim.fn.bufnr(modified_info.target)
     if existing ~= -1 and existing == old_original_buf then
       -- Replace original window with empty buffer first
-      vim.api.nvim_set_current_win(original_win)
-      vim.cmd("enew")
-      table.insert(buffers_to_delete, old_original_buf)
-      old_original_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+      if vim.api.nvim_win_is_valid(original_win) then
+        vim.api.nvim_set_current_win(original_win)
+        vim.cmd("enew")
+        table.insert(buffers_to_delete, old_original_buf)
+        old_original_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
+      end
     end
   end
 
   -- Now load buffers - :edit will create fresh buffers since we replaced conflicting ones
-  vim.api.nvim_set_current_win(original_win)
-  if original_info.needs_edit then
-    vim.cmd("edit " .. vim.fn.fnameescape(original_info.target))
-    original_info.bufnr = vim.api.nvim_get_current_buf()
-  else
-    vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+  if vim.api.nvim_win_is_valid(original_win) then
+    vim.api.nvim_set_current_win(original_win)
+    if original_info.needs_edit then
+      -- Force reload for virtual files to ensure fresh content (fixes stale :0 index)
+      local cmd = original_is_virtual and "edit! " or "edit "
+      vim.cmd(cmd .. vim.fn.fnameescape(original_info.target))
+      original_info.bufnr = vim.api.nvim_get_current_buf()
+    else
+      vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+    end
   end
 
-  vim.api.nvim_set_current_win(modified_win)
-  if modified_info.needs_edit then
-    vim.cmd("edit " .. vim.fn.fnameescape(modified_info.target))
-    modified_info.bufnr = vim.api.nvim_get_current_buf()
-  else
-    vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+  if vim.api.nvim_win_is_valid(modified_win) then
+    vim.api.nvim_set_current_win(modified_win)
+    if modified_info.needs_edit then
+      -- Force reload for virtual files to ensure fresh content
+      local cmd = modified_is_virtual and "edit! " or "edit "
+      vim.cmd(cmd .. vim.fn.fnameescape(modified_info.target))
+      modified_info.bufnr = vim.api.nvim_get_current_buf()
+    else
+      vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+    end
   end
   
   -- Delete the old buffers we replaced (after windows have new content)
@@ -569,11 +621,16 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
   -- Update lifecycle session metadata
   lifecycle.update_paths(tabpage, session_config.original_path, session_config.modified_path)
 
-  -- Delete old virtual buffers if they were virtual
-  if lifecycle.is_original_virtual(tabpage) and old_original_buf ~= original_info.bufnr then
+  -- Delete old virtual buffers if they were virtual AND are not reused in either new window
+  if lifecycle.is_original_virtual(tabpage) and 
+     old_original_buf ~= original_info.bufnr and 
+     old_original_buf ~= modified_info.bufnr then
     pcall(vim.api.nvim_buf_delete, old_original_buf, { force = true })
   end
-  if lifecycle.is_modified_virtual(tabpage) and old_modified_buf ~= modified_info.bufnr then
+  
+  if lifecycle.is_modified_virtual(tabpage) and 
+     old_modified_buf ~= modified_info.bufnr and 
+     old_modified_buf ~= original_info.bufnr then
     pcall(vim.api.nvim_buf_delete, old_modified_buf, { force = true })
   end
 
@@ -582,7 +639,12 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
   -- For now, we'll update the stored diff result and metadata
 
   -- Determine if we need to wait for virtual file content
-  local has_virtual_buffer = original_is_virtual or modified_is_virtual
+  -- Since we force reload virtual files, we always wait for the load event
+  -- Use a state table to avoid closure capture issues in autocmd
+  local wait_state = {
+    original = original_is_virtual and original_info.needs_edit,
+    modified = modified_is_virtual and modified_info.needs_edit
+  }
 
   local render_everything = function()
     -- Always read from buffers (single source of truth)
@@ -626,10 +688,8 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
   end
 
   -- Choose timing based on buffer types
-  if has_virtual_buffer then
+  if wait_state.original or wait_state.modified then
     -- Virtual file(s): Wait for BufReadCmd to load content
-    -- Track which virtual buffers have loaded
-    local loaded_buffers = {}
     local group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileUpdate_' .. tabpage, { clear = true })
 
     vim.api.nvim_create_autocmd('User', {
@@ -640,30 +700,23 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
 
         local loaded_buf = event.data.buf
 
-        -- Check if this is one of our virtual buffers
-        if (original_is_virtual and loaded_buf == original_info.bufnr) or
-           (modified_is_virtual and loaded_buf == modified_info.bufnr) then
-          loaded_buffers[loaded_buf] = true
+        -- Mark buffers as loaded when event fires
+        if wait_state.original and loaded_buf == original_info.bufnr then
+          wait_state.original = false
+        end
+        if wait_state.modified and loaded_buf == modified_info.bufnr then
+          wait_state.modified = false
+        end
 
-          -- Check if all virtual buffers are loaded
-          local all_loaded = true
-          if original_is_virtual and not loaded_buffers[original_info.bufnr] then
-            all_loaded = false
-          end
-          if modified_is_virtual and not loaded_buffers[modified_info.bufnr] then
-            all_loaded = false
-          end
-
-          -- Render once all virtual buffers are ready
-          if all_loaded then
-            vim.schedule(render_everything)
-            vim.api.nvim_del_augroup_by_id(group)
-          end
+        -- Render once all waited buffers are ready
+        if not wait_state.original and not wait_state.modified then
+          vim.schedule(render_everything)
+          vim.api.nvim_del_augroup_by_id(group)
         end
       end,
     })
   else
-    -- Real files only: Defer until :edit completes
+    -- Real files or reused virtual files: Defer until :edit completes
     vim.schedule(render_everything)
   end
 

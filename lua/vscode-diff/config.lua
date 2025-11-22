@@ -18,18 +18,19 @@ M.defaults = {
     max_computation_time_ms = 5000,  -- Maximum time for diff computation (5 seconds, VSCode default)
   },
 
-  -- Buffer options
-  buffer_options = {
-    modifiable = false,
-    readonly = true,
-    buftype = "nofile",
-  },
-
-  -- Window options
-  window_options = {
-    scrollbind = true,
-    cursorbind = false,
-    wrap = false,
+  -- Keymaps
+  keymaps = {
+    view = {
+      next_hunk = "]c",
+      prev_hunk = "[c",
+      next_file = "]f",
+      prev_file = "[f",
+    },
+    explorer = {
+      select = "<CR>",
+      hover = "K",
+      refresh = "R",
+    },
   },
 }
 

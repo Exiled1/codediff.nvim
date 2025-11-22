@@ -23,6 +23,7 @@ A Neovim plugin that provides VSCode-style inline diff rendering with two-tier h
 - Neovim >= 0.7.0 (for Lua FFI support; 0.10+ recommended for vim.system)
 - Git (for git diff features)
 - `curl` or `wget` (for automatic binary download)
+- `nui.nvim` (for explorer UI)
 
 **No compiler required!** The plugin automatically downloads pre-built binaries from GitHub releases.
 
@@ -32,9 +33,34 @@ A Neovim plugin that provides VSCode-style inline diff rendering with two-tier h
 ```lua
 {
   "esmuellert/vscode-diff.nvim",
+  dependencies = {
+    "MunifTanjim/nui.nvim",
+  },
   config = function()
     require("vscode-diff.config").setup({
-      -- Optional configuration
+      -- Optional configuration (defaults shown)
+      highlights = {
+        line_insert = "DiffAdd",
+        line_delete = "DiffDelete",
+        char_brightness = 1.4,
+      },
+      diff = {
+        disable_inlay_hints = true,
+        max_computation_time_ms = 5000,
+      },
+      keymaps = {
+        view = {
+          next_hunk = "]c",
+          prev_hunk = "[c",
+          next_file = "]f",
+          prev_file = "[f",
+        },
+        explorer = {
+          select = "<CR>",
+          hover = "K",
+          refresh = "R",
+        },
+      },
     })
   end,
 }
@@ -123,6 +149,9 @@ Open an interactive file explorer showing changed files:
 
 " Compare against a specific commit
 :CodeDiff abc123
+
+" Compare two revisions (e.g. HEAD vs main)
+:CodeDiff main HEAD
 ```
 
 ### Git Diff Mode
@@ -144,6 +173,9 @@ Compare the current buffer with a git revision:
 
 " Compare with tag
 :CodeDiff file v1.0.0
+
+" Compare two revisions for current file
+:CodeDiff file main HEAD
 ```
 
 **Requirements:**

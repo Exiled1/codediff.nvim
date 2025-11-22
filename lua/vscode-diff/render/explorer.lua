@@ -4,6 +4,7 @@ local M = {}
 local Tree = require("nui.tree")
 local NuiLine = require("nui.line")
 local Split = require("nui.split")
+local config = require("vscode-diff.config")
 
 -- Status symbols and colors
 local STATUS_SYMBOLS = {
@@ -77,7 +78,7 @@ local function create_tree_data(status_result, git_root, base_revision)
 end
 
 -- Render tree node
-local function prepare_node(node, max_width)
+local function prepare_node(node, max_width, selected_path)
   local line = NuiLine()
   local data = node.data or {}
 
@@ -87,14 +88,19 @@ local function prepare_node(node, max_width)
     line:append(icon .. " ", "Directory")
     line:append(node.text, "Directory")
   else
+    local is_selected = data.path and data.path == selected_path
+    local function get_hl(default)
+      return is_selected and "CodeDiffExplorerSelected" or (default or "Normal")
+    end
+
     -- File entry - VSCode style: filename (bold) + directory (dimmed) + status (right-aligned)
     local indent = string.rep("  ", node:get_depth() - 1)
-    line:append(indent)
+    line:append(indent, get_hl("Normal"))
     
     local icon_part = ""
     if data.icon then
       icon_part = data.icon .. " "
-      line:append(icon_part, data.icon_color or "Normal")
+      line:append(icon_part, get_hl(data.icon_color))
     end
     
     -- Status symbol at the end (e.g., "M", "D", "??")
@@ -106,14 +112,14 @@ local function prepare_node(node, max_width)
     local directory = full_path:sub(1, -(#filename + 1))  -- Remove filename, keep trailing /
     
     -- Calculate how much width we've used and reserve for status
-    local used_width = #indent + #icon_part
-    local status_reserve = #status_symbol + 2  -- 2 spaces padding before status
+    local used_width = vim.fn.strdisplaywidth(indent) + vim.fn.strdisplaywidth(icon_part)
+    local status_reserve = vim.fn.strdisplaywidth(status_symbol) + 2  -- 2 spaces padding before status
     local available_for_content = max_width - used_width - status_reserve
     
     -- VSCode shows: filename + directory (dimmed), truncate directory if needed
-    local filename_len = #filename
-    local directory_len = #directory
-    local space_len = (#directory > 0) and 1 or 0  -- Account for space between filename and directory
+    local filename_len = vim.fn.strdisplaywidth(filename)
+    local directory_len = vim.fn.strdisplaywidth(directory)
+    local space_len = (directory_len > 0) and 1 or 0  -- Account for space between filename and directory
     
     if filename_len + space_len + directory_len > available_for_content then
       -- Prioritize showing full filename, truncate directory from end (right)
@@ -121,8 +127,18 @@ local function prepare_node(node, max_width)
       if available_for_dir > 3 then
         -- Show truncated directory (from the start, hide the end)
         local ellipsis = "..."
-        local chars_to_keep = available_for_dir - #ellipsis
-        directory = directory:sub(1, chars_to_keep) .. ellipsis
+        local chars_to_keep = available_for_dir - vim.fn.strdisplaywidth(ellipsis)
+        
+        -- Truncate directory by display width, not byte index
+        local byte_pos = 0
+        local accumulated_width = 0
+        for char in vim.gsplit(directory, "") do
+          local char_width = vim.fn.strdisplaywidth(char)
+          if accumulated_width + char_width > chars_to_keep then break end
+          accumulated_width = accumulated_width + char_width
+          byte_pos = byte_pos + #char
+        end
+        directory = directory:sub(1, byte_pos) .. ellipsis
       else
         -- Not enough space for directory, just show filename
         directory = ""
@@ -131,26 +147,26 @@ local function prepare_node(node, max_width)
     end
     
     -- Append filename (normal weight) and directory (dimmed with smaller font)
-    line:append(filename, "Normal")
+    line:append(filename, get_hl("Normal"))
     if #directory > 0 then
-      line:append(" ", "Normal")
-      line:append(directory, "ExplorerDirectorySmall")  -- Smaller dimmed style
+      line:append(" ", get_hl("Normal"))
+      line:append(directory, get_hl("ExplorerDirectorySmall"))  -- Smaller dimmed style
     end
     
     -- Add padding to push status symbol to the right edge
-    local content_len = #filename + space_len + #directory
+    local content_len = vim.fn.strdisplaywidth(filename) + space_len + vim.fn.strdisplaywidth(directory)
     local padding_needed = available_for_content - content_len + 2
     if padding_needed > 0 then
-      line:append(string.rep(" ", padding_needed))
+      line:append(string.rep(" ", padding_needed), get_hl("Normal"))
     end
-    line:append(status_symbol, data.status_color or "Normal")
+    line:append(status_symbol, get_hl(data.status_color))
   end
 
   return line
 end
 
 -- Create and show explorer
-function M.create(status_result, git_root, tabpage, width, base_revision)
+function M.create(status_result, git_root, tabpage, width, base_revision, target_revision)
   -- Use provided width or default to 40 columns (same as neo-tree)
   local explorer_width = width or 40
   
@@ -169,11 +185,16 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
       relativenumber = false,
       cursorline = true,
       wrap = false,
+      signcolumn = "no",
+      foldcolumn = "0",
     },
   })
 
   -- Mount split first to get bufnr
   split:mount()
+
+  -- Track selected path for highlighting
+  local selected_path = nil
 
   -- Create tree with buffer number
   local tree_data = create_tree_data(status_result, git_root, base_revision)
@@ -181,7 +202,7 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
     bufnr = split.bufnr,
     nodes = tree_data,
     prepare_node = function(node)
-      return prepare_node(node, explorer_width)
+      return prepare_node(node, explorer_width, selected_path)
     end,
   })
 
@@ -203,6 +224,7 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
     winid = split.winid,
     git_root = git_root,
     base_revision = base_revision,
+    target_revision = target_revision,
     status_result = status_result, -- Store initial status result
     on_file_select = nil,  -- Will be set below
     current_file_path = nil,  -- Track currently selected file
@@ -238,9 +260,26 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
       end
     end
 
+    if base_revision and target_revision and target_revision ~= "WORKING" then
+      -- Two revision mode: Compare base vs target
+      vim.schedule(function()
+        ---@type SessionConfig
+        local session_config = {
+          mode = "explorer",
+          git_root = git_root,
+          original_path = old_path or file_path,
+          modified_path = file_path,
+          original_revision = base_revision,
+          modified_revision = target_revision,
+        }
+        view.update(tabpage, session_config, true)
+      end)
+      return
+    end
+
     -- Use base_revision if provided, otherwise default to HEAD
-    local target_revision = base_revision or "HEAD"
-    git.resolve_revision(target_revision, git_root, function(err_resolve, commit_hash)
+    local target_revision_single = base_revision or "HEAD"
+    git.resolve_revision(target_revision_single, git_root, function(err_resolve, commit_hash)
       if err_resolve then
         vim.schedule(function()
           vim.notify(err_resolve, vim.log.levels.ERROR)
@@ -313,6 +352,8 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
   -- Wrap on_file_select to track current file
   explorer.on_file_select = function(file_data)
     explorer.current_file_path = file_data.path
+    selected_path = file_data.path
+    tree:render()
     on_file_select(file_data)
   end
 
@@ -320,25 +361,27 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
   local map_options = { noremap = true, silent = true, nowait = true }
 
   -- Toggle expand/collapse
-  vim.keymap.set("n", "<CR>", function()
-    local node = tree:get_node()
-    if not node then return end
-
-    if node.data and node.data.type == "group" then
-      -- Toggle group
-      if node:is_expanded() then
-        node:collapse()
+  if config.options.keymaps.explorer.select then
+    vim.keymap.set("n", config.options.keymaps.explorer.select, function()
+      local node = tree:get_node()
+      if not node then return end
+  
+      if node.data and node.data.type == "group" then
+        -- Toggle group
+        if node:is_expanded() then
+          node:collapse()
+        else
+          node:expand()
+        end
+        tree:render()
       else
-        node:expand()
+        -- File selected
+        if node.data then
+          explorer.on_file_select(node.data)
+        end
       end
-      tree:render()
-    else
-      -- File selected
-      if node.data then
-        explorer.on_file_select(node.data)
-      end
-    end
-  end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+    end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  end
 
   -- Double click also works for files
   vim.keymap.set("n", "<2-LeftMouse>", function()
@@ -354,67 +397,85 @@ function M.create(status_result, git_root, tabpage, width, base_revision)
   
   -- Hover to show full path (K key, like LSP hover)
   local hover_win = nil
-  vim.keymap.set("n", "K", function()
-    -- Close existing hover window
-    if hover_win and vim.api.nvim_win_is_valid(hover_win) then
-      vim.api.nvim_win_close(hover_win, true)
-      hover_win = nil
-      return
-    end
-    
-    local node = tree:get_node()
-    if not node or not node.data or node.data.type == "group" then return end
-    
-    local full_path = node.data.path
-    local display_text = git_root .. "/" .. full_path
-    
-    -- Create hover buffer
-    local hover_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_lines(hover_buf, 0, -1, false, { display_text })
-    vim.bo[hover_buf].modifiable = false
-    
-    -- Calculate window position (next to cursor)
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local row = cursor[1] - 1
-    local col = vim.api.nvim_win_get_width(0)
-    
-    -- Calculate window dimensions with wrapping
-    local max_width = 80
-    local text_len = #display_text
-    local width = math.min(text_len + 2, max_width)
-    local height = math.ceil(text_len / (max_width - 2))  -- Account for padding
-    
-    -- Create floating window with wrap enabled
-    hover_win = vim.api.nvim_open_win(hover_buf, false, {
-      relative = "win",
-      row = row,
-      col = col,
-      width = width,
-      height = height,
-      style = "minimal",
-      border = "rounded",
-    })
-    
-    -- Enable wrap in hover window
-    vim.wo[hover_win].wrap = true
-    
-    -- Auto-close on cursor move or buffer leave
-    vim.api.nvim_create_autocmd({"CursorMoved", "BufLeave"}, {
-      buffer = split.bufnr,
-      once = true,
-      callback = function()
-        if hover_win and vim.api.nvim_win_is_valid(hover_win) then
-          vim.api.nvim_win_close(hover_win, true)
-          hover_win = nil
-        end
-      end,
-    })
-  end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  if config.options.keymaps.explorer.hover then
+    vim.keymap.set("n", config.options.keymaps.explorer.hover, function()
+      -- Close existing hover window
+      if hover_win and vim.api.nvim_win_is_valid(hover_win) then
+        vim.api.nvim_win_close(hover_win, true)
+        hover_win = nil
+        return
+      end
+      
+      local node = tree:get_node()
+      if not node or not node.data or node.data.type == "group" then return end
+      
+      local full_path = node.data.path
+      local display_text = git_root .. "/" .. full_path
+      
+      -- Create hover buffer
+      local hover_buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(hover_buf, 0, -1, false, { display_text })
+      vim.bo[hover_buf].modifiable = false
+      
+      -- Calculate window position (next to cursor)
+      local cursor = vim.api.nvim_win_get_cursor(0)
+      local row = cursor[1] - 1
+      local col = vim.api.nvim_win_get_width(0)
+      
+      -- Calculate window dimensions with wrapping
+      local max_width = 80
+      local text_len = #display_text
+      local width = math.min(text_len + 2, max_width)
+      local height = math.ceil(text_len / (max_width - 2))  -- Account for padding
+      
+      -- Create floating window with wrap enabled
+      hover_win = vim.api.nvim_open_win(hover_buf, false, {
+        relative = "win",
+        row = row,
+        col = col,
+        width = width,
+        height = height,
+        style = "minimal",
+        border = "rounded",
+      })
+      
+      -- Enable wrap in hover window
+      vim.wo[hover_win].wrap = true
+      
+      -- Auto-close on cursor move or buffer leave
+      vim.api.nvim_create_autocmd({"CursorMoved", "BufLeave"}, {
+        buffer = split.bufnr,
+        once = true,
+        callback = function()
+          if hover_win and vim.api.nvim_win_is_valid(hover_win) then
+            vim.api.nvim_win_close(hover_win, true)
+            hover_win = nil
+          end
+        end,
+      })
+    end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  end
   
   -- Refresh explorer (R key)
-  vim.keymap.set("n", "R", function()
-    M.refresh(explorer)
-  end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  if config.options.keymaps.explorer.refresh then
+    vim.keymap.set("n", config.options.keymaps.explorer.refresh, function()
+      M.refresh(explorer)
+    end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  end
+
+  -- Navigate to next file
+  if config.options.keymaps.view.next_file then
+    vim.keymap.set("n", config.options.keymaps.view.next_file, function()
+      M.navigate_next(explorer)
+    end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  end
+
+  -- Navigate to previous file
+  if config.options.keymaps.view.prev_file then
+    vim.keymap.set("n", config.options.keymaps.view.prev_file, function()
+      M.navigate_prev(explorer)
+    end, vim.tbl_extend("force", map_options, { buffer = split.bufnr }))
+  end
 
   -- Select first file by default
   local first_file = nil
@@ -547,7 +608,9 @@ function M.refresh(explorer)
   end
   
   -- Use appropriate git function based on mode
-  if explorer.base_revision then
+  if explorer.base_revision and explorer.target_revision and explorer.target_revision ~= "WORKING" then
+    git.get_diff_revisions(explorer.base_revision, explorer.target_revision, explorer.git_root, process_result)
+  elseif explorer.base_revision then
     git.get_diff_revision(explorer.base_revision, explorer.git_root, process_result)
   else
     git.get_status(explorer.git_root, process_result)

@@ -61,6 +61,12 @@ function M.setup()
     link = "Comment",
     default = true,
   })
+
+  -- Explorer selected file
+  vim.api.nvim_set_hl(0, "CodeDiffExplorerSelected", {
+    link = "Visual",
+    default = true,
+  })
 end
 
 return M

@@ -263,7 +263,7 @@ end
 --- @param original_win number Original window ID
 --- @param modified_win number Modified window ID
 --- @param lines_diff table Diff computation result
-function M.create_session(tabpage, mode, git_root, original_path, modified_path, original_revision, modified_revision, 
+function M.create_session(tabpage, mode, git_root, original_path, modified_path, original_revision, modified_revision,
                           original_bufnr, modified_bufnr, original_win, modified_win, lines_diff)
   -- Save buffer states
   local original_state = save_buffer_state(original_bufnr)
@@ -298,7 +298,7 @@ function M.create_session(tabpage, mode, git_root, original_path, modified_path,
       original = get_file_mtime(original_bufnr),
       modified = get_file_mtime(modified_bufnr),
     },
-    
+
     -- Explorer reference (only for explorer mode)
     explorer = nil,
   }
@@ -674,11 +674,11 @@ function M.update_buffers(tabpage, original_bufnr, modified_bufnr)
 
   session.original_bufnr = original_bufnr
   session.modified_bufnr = modified_bufnr
-  
+
   -- Save buffer states for new buffers (critical for suspend/resume!)
   session.original_state = save_buffer_state(original_bufnr)
   session.modified_state = save_buffer_state(modified_bufnr)
-  
+
   return true
 end
 
@@ -705,7 +705,7 @@ end
 function M.set_explorer(tabpage, explorer)
   local session = active_diffs[tabpage]
   if not session then return false end
-  
+
   session.explorer = explorer
   return true
 end

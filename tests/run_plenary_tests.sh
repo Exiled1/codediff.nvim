@@ -35,6 +35,7 @@ SPEC_FILES=(
   "tests/render/lifecycle_spec.lua"
   "tests/render/view_spec.lua"
   "tests/integration_diagnostics_spec.lua"
+  "tests/full_integration_spec.lua"
 )
 
 for spec_file in "${SPEC_FILES[@]}"; do
