@@ -34,14 +34,16 @@ describe("Explorer Mode", function()
     vim.fn.chdir(temp_dir)
     
     -- Initialize git repo
-    vim.fn.system("git init")
-    vim.fn.system("git config user.email 'test@example.com'")
-    vim.fn.system("git config user.name 'Test User'")
+    local init_result = vim.fn.system("git init")
+    assert(vim.v.shell_error == 0, "git init failed: " .. init_result)
+    vim.fn.system('git config user.email "test@example.com"')
+    vim.fn.system('git config user.name "Test User"')
     
     -- Create and commit initial file
     vim.fn.writefile({"line 1", "line 2"}, temp_dir .. "/file1.txt")
     vim.fn.system("git add file1.txt")
-    vim.fn.system("git commit -m 'Initial commit'")
+    local commit_result = vim.fn.system('git commit -m "Initial commit"')
+    assert(vim.v.shell_error == 0, "git commit failed: " .. commit_result)
     
     -- Modify file (unstaged)
     vim.fn.writefile({"line 1", "line 2 modified", "line 3"}, temp_dir .. "/file1.txt")
@@ -55,17 +57,21 @@ describe("Explorer Mode", function()
   end)
 
   after_each(function()
-    -- Clean up and restore
-    vim.fn.chdir(original_cwd)
-    if temp_dir and vim.fn.isdirectory(temp_dir) == 1 then
-      vim.fn.delete(temp_dir, "rf")
-    end
-    
     -- Ensure we are not in a diff session (which might be the only tab)
     -- Create a new tab to be safe
     vim.cmd("tabnew")
     -- Close all other tabs (including any diff tabs)
     vim.cmd("tabonly")
+    
+    -- Clean up and restore
+    vim.fn.chdir(original_cwd)
+    
+    -- Wait for async operations to complete before deleting temp directory
+    vim.wait(200)
+    
+    if temp_dir and vim.fn.isdirectory(temp_dir) == 1 then
+      vim.fn.delete(temp_dir, "rf")
+    end
   end)
 
   -- Test 1: Git status parsing
@@ -302,7 +308,7 @@ describe("Explorer Mode", function()
     vim.cmd("CodeDiff")
     
     -- Wait for explorer and first file to load
-    vim.wait(4000, function()
+    vim.wait(6000, function()
       local wincount = vim.fn.winnr('$')
       if wincount ~= 3 then return false end
       

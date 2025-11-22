@@ -83,6 +83,13 @@ local function run_git_async(args, opts, callback)
 
   -- Use vim.system if available (Neovim 0.10+)
   if vim.system then
+    -- On Windows, vim.system requires that cwd exists before running the command
+    -- Validate the directory exists to provide a better error message
+    if opts.cwd and vim.fn.isdirectory(opts.cwd) == 0 then
+      callback("Directory does not exist: " .. opts.cwd, nil)
+      return
+    end
+
     vim.system(
       vim.list_extend({ "git" }, args),
       {
@@ -99,6 +106,12 @@ local function run_git_async(args, opts, callback)
     )
   else
     -- Fallback to vim.loop.spawn for older Neovim versions
+    -- Validate the directory exists to provide a better error message
+    if opts.cwd and vim.fn.isdirectory(opts.cwd) == 0 then
+      callback("Directory does not exist: " .. opts.cwd, nil)
+      return
+    end
+
     local stdout_data = {}
     local stderr_data = {}
 

@@ -56,13 +56,13 @@ describe("Full Integration Suite", function()
     git("init")
     -- Rename branch to main to be sure
     git("branch -m main")
-    git("config user.email 'test@example.com'")
-    git("config user.name 'Test User'")
+    git('config user.email "test@example.com"')
+    git('config user.name "Test User"')
     
     -- Commit 1
     vim.fn.writefile({"line 1", "line 2"}, temp_dir .. "/file.txt")
     git("add file.txt")
-    git("commit -m 'Initial commit'")
+    git('commit -m "Initial commit"')
     commit_hash_1 = vim.trim(git("rev-parse HEAD"))
     
     -- Tag v1.0.0
@@ -71,7 +71,7 @@ describe("Full Integration Suite", function()
     -- Commit 2
     vim.fn.writefile({"line 1", "line 2 modified"}, temp_dir .. "/file.txt")
     git("add file.txt")
-    git("commit -m 'Second commit'")
+    git('commit -m "Second commit"')
     commit_hash_2 = vim.trim(git("rev-parse HEAD"))
 
     -- Create another file for file comparison
@@ -87,8 +87,8 @@ describe("Full Integration Suite", function()
     vim.cmd("tabnew")
     vim.cmd("tabonly")
     
-    -- Give a small grace period for async tasks/handles to close
-    vim.wait(100)
+    -- Give enough time for async tasks/handles to close
+    vim.wait(200)
 
     -- Clean up
     if temp_dir and vim.fn.isdirectory(temp_dir) == 1 then
