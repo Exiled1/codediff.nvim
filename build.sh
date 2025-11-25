@@ -17,14 +17,30 @@ else
     LIB_EXT="so"
 fi
 
+# Auto-detect compiler
+if command -v cc >/dev/null 2>&1; then
+    CC="cc"
+elif command -v gcc >/dev/null 2>&1; then
+    CC="gcc"
+elif command -v clang >/dev/null 2>&1; then
+    CC="clang"
+else
+    echo "Error: No C compiler found (tried: cc, gcc, clang)"
+    exit 1
+fi
+
 echo "Building vscode_diff (standalone mode)..."
-echo "Compiler: C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
+echo "Compiler: $CC"
 echo "Platform: $PLATFORM"
 
-# Compiler and flags from CMake configuration
-CC="C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
-CFLAGS="/DWIN32 /D_WINDOWS /W3 /O2 /DNDEBUG -Iinclude -Ibuild/include -Ivendor -fPIC"
-LDFLAGS="-shared -lm"
+# Compiler flags
+CFLAGS="-Wall -Wextra -std=c11 -O2 -DNDEBUG -DUTF8PROC_STATIC -Iinclude -Ibuild/include -Ivendor -fPIC"
+LDFLAGS="-shared"
+
+# Add -lm for math library on Unix
+if [[ "$PLATFORM" != "Darwin" ]]; then
+    LDFLAGS="$LDFLAGS -lm"
+fi
 
 # Source files (including bundled utf8proc)
 SOURCES="\
