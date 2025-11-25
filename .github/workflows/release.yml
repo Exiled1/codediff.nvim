@@ -76,7 +76,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           push-branch: 'main'
-          commit-message: 'chore: bump version to ${{ steps.bump_version.outputs.new_version }}'
+          commit-message: 'chore: bump version to ${{ steps.bump_version.outputs.new_version }} [skip ci]'
           files: VERSION
           name: github-actions[bot]
           email: github-actions[bot]@users.noreply.github.com
