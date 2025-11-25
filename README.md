@@ -144,7 +144,7 @@ The plugin requires a C library binary in the plugin root directory. The plugin 
 
 **Option A: Download from GitHub releases** (recommended)
 
-Download the appropriate binary for your platform from the [GitHub releases page](https://github.com/esmuellert/vscode-diff.nvim/releases) and place it in the plugin root directory.
+Download the appropriate binary from the [GitHub releases page](https://github.com/esmuellert/vscode-diff.nvim/releases) and place it in the plugin root directory. Rename it to match the expected format: `libvscode_diff.so`/`.dylib`/`.dll` or `libvscode_diff_<version>.so`/`.dylib`/`.dll`.
 
 **Option B: Build from source**
 
