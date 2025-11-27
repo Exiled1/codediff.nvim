@@ -126,10 +126,16 @@ jobs:
           if [ -f artifacts/linux-x64/libvscode_diff.so ]; then
             cp artifacts/linux-x64/libvscode_diff.so release-assets/libvscode_diff_linux_x64_${VERSION}.so
           fi
+          if [ -f artifacts/linux-x64/libgomp.so.1 ]; then
+            cp artifacts/linux-x64/libgomp.so.1 release-assets/libgomp_linux_x64_${VERSION}.so.1
+          fi
 
           # Linux ARM64
           if [ -f artifacts/linux-arm64/libvscode_diff.so ]; then
             cp artifacts/linux-arm64/libvscode_diff.so release-assets/libvscode_diff_linux_arm64_${VERSION}.so
+          fi
+          if [ -f artifacts/linux-arm64/libgomp.so.1 ]; then
+            cp artifacts/linux-arm64/libgomp.so.1 release-assets/libgomp_linux_arm64_${VERSION}.so.1
           fi
 
           # macOS x64

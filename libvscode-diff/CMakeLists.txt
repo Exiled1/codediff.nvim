@@ -133,6 +133,14 @@ if(USE_OPENMP)
     target_compile_options(vscode_diff PRIVATE ${OpenMP_C_FLAGS})
     target_link_libraries(vscode_diff PRIVATE OpenMP::OpenMP_C)
     target_compile_definitions(vscode_diff PRIVATE USE_OPENMP)
+    
+    # Set RPATH to find bundled libgomp.so.1 in the same directory
+    if(UNIX AND NOT APPLE)
+        set_target_properties(vscode_diff PROPERTIES
+            BUILD_WITH_INSTALL_RPATH TRUE
+            INSTALL_RPATH "$ORIGIN"
+        )
+    endif()
 endif()
 
 if(USE_BUNDLED_UTF8PROC)

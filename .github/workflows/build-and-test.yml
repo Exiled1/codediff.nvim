@@ -148,8 +148,10 @@ jobs:
                 ln -s /usr/bin/cmake3 /usr/local/bin/cmake
               fi
               make build
+              # Copy libgomp.so.1 from CentOS 7 (old GLIBC 2.17 compatible)
+              cp /lib64/libgomp.so.1 ./ || cp /usr/lib64/libgomp.so.1 ./ || true
               # Fix ownership of build artifacts for host user
-              chown -R \$HOST_UID:\$HOST_GID build/ libvscode_diff.so 2>/dev/null || true
+              chown -R \$HOST_UID:\$HOST_GID build/ libvscode_diff.so libgomp.so.1 2>/dev/null || true
             "
 
       - name: Build library (macOS)
@@ -201,5 +203,6 @@ jobs:
             libvscode_diff.so
             libvscode_diff.dylib
             libvscode_diff.dll
+            libgomp.so.1
           if-no-files-found: ignore
           retention-days: 7

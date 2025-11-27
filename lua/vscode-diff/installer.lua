@@ -179,6 +179,24 @@ local function command_exists(cmd)
   end
 end
 
+-- Check if libgomp is available on the system
+local function check_system_libgomp()
+  local os_name = detect_os()
+  
+  -- Only check on Linux (macOS and Windows don't use libgomp)
+  if os_name ~= "linux" then
+    return true
+  end
+  
+  -- Try to load libgomp using FFI
+  local ffi = require("ffi")
+  local ok = pcall(function()
+    ffi.load("gomp", true)
+  end)
+  
+  return ok
+end
+
 -- Download file using curl, wget, or PowerShell
 local function download_file(url, dest_path)
   local ffi = require("ffi")
@@ -226,6 +244,98 @@ local function download_file(url, dest_path)
       return false, string.format("Download failed with exit code: %s", tostring(exit_code))
     end
   end
+end
+
+-- Install libgomp if needed
+local function install_libgomp_if_needed(opts)
+  local os_name = detect_os()
+  
+  -- Only needed on Linux
+  if os_name ~= "linux" then
+    return true
+  end
+  
+  local plugin_root = get_plugin_root()
+  local libgomp_path = plugin_root .. "/libgomp.so.1"
+  
+  -- Check if already bundled
+  if vim.fn.filereadable(libgomp_path) == 1 then
+    if not opts.silent then
+      vim.notify("libgomp.so.1 already bundled", vim.log.levels.DEBUG)
+    end
+    return true
+  end
+  
+  -- Check if system has libgomp
+  if check_system_libgomp() then
+    if not opts.silent then
+      vim.notify("System libgomp.so.1 found, no need to bundle", vim.log.levels.DEBUG)
+    end
+    return true
+  end
+  
+  -- Need to download libgomp
+  if not opts.silent then
+    vim.notify("System libgomp.so.1 not found, downloading...", vim.log.levels.INFO)
+  end
+  
+  local arch, arch_err = detect_arch()
+  if not arch then
+    local msg = "Failed to detect architecture: " .. (arch_err or "unknown error")
+    vim.notify(msg, vim.log.levels.ERROR)
+    return false, msg
+  end
+  
+  local current_version = get_current_version()
+  if not current_version then
+    local msg = "Failed to read VERSION"
+    vim.notify(msg, vim.log.levels.ERROR)
+    return false, msg
+  end
+  
+  -- Build libgomp download URL
+  local libgomp_filename = string.format("libgomp_linux_%s_%s.so.1", arch, current_version)
+  local url = string.format(
+    "https://github.com/esmuellert/vscode-diff.nvim/releases/download/v%s/%s",
+    current_version,
+    libgomp_filename
+  )
+  
+  if not opts.silent then
+    vim.notify("Downloading libgomp from: " .. url, vim.log.levels.INFO)
+  end
+  
+  -- Download to temporary location
+  local temp_path = plugin_root .. "/libgomp.so.1.tmp"
+  local success, err = download_file(url, temp_path)
+  
+  if not success then
+    local msg = "Failed to download libgomp: " .. (err or "unknown error")
+    vim.notify(msg, vim.log.levels.WARN)
+    vim.notify("Plugin may not work without libgomp installed on your system", vim.log.levels.WARN)
+    os.remove(temp_path)
+    -- Don't fail the installation, just warn
+    return true
+  end
+  
+  -- Move to final location
+  if vim.fn.filereadable(libgomp_path) == 1 then
+    os.remove(libgomp_path)
+  end
+  
+  local ok = os.rename(temp_path, libgomp_path)
+  if not ok then
+    local msg = "Failed to move libgomp to final location"
+    vim.notify(msg, vim.log.levels.WARN)
+    os.remove(temp_path)
+    return true -- Don't fail installation
+  end
+  
+  if not opts.silent then
+    vim.notify("Successfully downloaded libgomp.so.1", vim.log.levels.INFO)
+  end
+  
+  return true
 end
 
 -- Install the library
@@ -341,6 +451,9 @@ function M.install(opts)
   if not opts.silent then
     vim.notify("Successfully installed libvscode-diff!", vim.log.levels.INFO)
   end
+  
+  -- Also check and install libgomp if needed
+  install_libgomp_if_needed(opts)
   
   return true
 end
