@@ -137,16 +137,10 @@ jobs:
               if [ \$(uname -m) = \"aarch64\" ]; then
                 # Remove SCL-RH repo (not needed for system GCC)
                 rm -f /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-                yum install -y gcc gcc-c++ make
-                # ARM64 cmake3 in EPEL is 3.14.6, need 3.15+. Build from source.
-                cd /tmp
-                curl -LO https://github.com/Kitware/CMake/releases/download/v3.15.7/cmake-3.15.7.tar.gz
-                tar xzf cmake-3.15.7.tar.gz
-                cd cmake-3.15.7
-                ./bootstrap --prefix=/usr/local -- -DCMAKE_USE_OPENSSL=OFF
-                make -j\$(nproc)
-                make install
-                cd /workspace
+                yum install -y gcc gcc-c++ make curl
+                # ARM64 cmake3 in EPEL is 3.14.6, need 3.15+. Use official binary.
+                curl -LO https://github.com/Kitware/CMake/releases/download/v3.15.7/cmake-3.15.7-Linux-aarch64.tar.gz
+                tar --strip-components=1 -xzf cmake-3.15.7-Linux-aarch64.tar.gz -C /usr/local
               else
                 sed -i -e 's/^mirrorlist/#mirrorlist/' -e 's/^#baseurl/baseurl/' -e 's/mirror\.centos\.org/vault.centos.org/' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
                 yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ cmake3 make
