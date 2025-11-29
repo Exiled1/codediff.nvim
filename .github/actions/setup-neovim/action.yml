@@ -2,9 +2,9 @@ name: 'Setup Neovim'
 description: 'Install Neovim nightly on Ubuntu, macOS, or Windows'
 inputs:
   arch:
-    description: 'Architecture (x64 or arm64)'
+    description: 'Architecture (x64 or arm64). Auto-detects if not specified.'
     required: false
-    default: 'x64'
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -12,8 +12,18 @@ runs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
+        # Auto-detect architecture if not specified
+        INPUT_ARCH="${{ inputs.arch }}"
+        if [ -z "$INPUT_ARCH" ]; then
+          if [ "$(uname -m)" = "aarch64" ]; then
+            INPUT_ARCH="arm64"
+          else
+            INPUT_ARCH="x64"
+          fi
+        fi
+        
         ARCH="linux-x86_64"
-        if [ "${{ inputs.arch }}" = "arm64" ]; then
+        if [ "$INPUT_ARCH" = "arm64" ]; then
           ARCH="linux-arm64"
         fi
         curl -LO https://github.com/neovim/neovim/releases/download/nightly/nvim-$ARCH.tar.gz
@@ -25,8 +35,18 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
+        # Auto-detect architecture if not specified
+        INPUT_ARCH="${{ inputs.arch }}"
+        if [ -z "$INPUT_ARCH" ]; then
+          if [ "$(uname -m)" = "arm64" ]; then
+            INPUT_ARCH="arm64"
+          else
+            INPUT_ARCH="x64"
+          fi
+        fi
+        
         ARCH="macos-arm64"
-        if [ "${{ inputs.arch }}" = "x64" ]; then
+        if [ "$INPUT_ARCH" = "x64" ]; then
           ARCH="macos-x86_64"
         fi
         curl -LO https://github.com/neovim/neovim/releases/download/nightly/nvim-$ARCH.tar.gz
@@ -38,7 +58,16 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
+        # Auto-detect architecture if not specified
         $arch = "${{ inputs.arch }}"
+        if ([string]::IsNullOrEmpty($arch)) {
+          if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+            $arch = "arm64"
+          } else {
+            $arch = "x64"
+          }
+        }
+        
         $archSuffix = if ($arch -eq "arm64") { "-arm64" } else { "64" }
         $downloadUrl = "https://github.com/neovim/neovim/releases/download/nightly/nvim-win$archSuffix.zip"
         $installPath = "C:\tools\neovim"
