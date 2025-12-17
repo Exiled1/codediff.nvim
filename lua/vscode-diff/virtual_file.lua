@@ -87,18 +87,6 @@ function M.create_url(git_root, commit, filepath)
   -- Use :p to get full path
   local encoded_root = vim.fn.fnamemodify(git_root, ':p')
   
-  -- On Windows, convert 8.3 short names to long names for consistency
-  -- vim.fn.resolve() doesn't do this, so we use glob which returns long names
-  if vim.fn.has('win32') == 1 then
-    -- Remove trailing slash for glob to work
-    local clean_path = encoded_root:gsub('[/\\]$', '')
-    -- glob returns the long path name on Windows
-    local globbed = vim.fn.glob(clean_path, false, true)
-    if globbed and #globbed > 0 then
-      encoded_root = globbed[1] .. '/'
-    end
-  end
-  
   -- Remove trailing slashes (both / and \)
   encoded_root = encoded_root:gsub('[/\\]$', '')
   -- Normalize to forward slashes
@@ -107,16 +95,8 @@ function M.create_url(git_root, commit, filepath)
   local encoded_commit = commit or 'HEAD'
   local encoded_path = filepath:gsub('^/', '')
   
-  local url = string.format('vscodediff:///%s///%s/%s', 
+  return string.format('vscodediff:///%s///%s/%s', 
     encoded_root, encoded_commit, encoded_path)
-  
-  -- Debug: log URL creation on Windows CI
-  if vim.fn.has('win32') == 1 and os.getenv('CI') then
-    print(string.format('DEBUG create_url: root=%s commit=%s path=%s -> %s', 
-      git_root, commit or 'nil', filepath, url))
-  end
-  
-  return url
 end
 
 -- Parse a vscodediff:// URL

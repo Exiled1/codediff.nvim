@@ -169,35 +169,6 @@ describe("Explorer Buffer Management", function()
     ready = h.wait_for_session_ready(tabpage)
     assert.is_true(ready, "Session should be ready after switching to staged view")
 
-    -- Debug: Check what buffers we have
-    local orig_buf, mod_buf = lifecycle.get_buffers(tabpage)
-    print("DEBUG: repo.dir =", repo.dir)
-    print("DEBUG: After switching to staged view")
-    print("DEBUG: orig_buf =", orig_buf, "valid =", orig_buf and vim.api.nvim_buf_is_valid(orig_buf))
-    print("DEBUG: mod_buf =", mod_buf, "valid =", mod_buf and vim.api.nvim_buf_is_valid(mod_buf))
-    if orig_buf and vim.api.nvim_buf_is_valid(orig_buf) then
-      print("DEBUG: orig_buf name =", vim.api.nvim_buf_get_name(orig_buf))
-    end
-    if mod_buf and vim.api.nvim_buf_is_valid(mod_buf) then
-      print("DEBUG: mod_buf name =", vim.api.nvim_buf_get_name(mod_buf))
-    end
-    -- List all buffers with vscodediff
-    print("DEBUG: All vscodediff buffers:")
-    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-      if vim.api.nvim_buf_is_valid(buf) then
-        local name = vim.api.nvim_buf_get_name(buf)
-        if name:find("vscodediff") then
-          print("DEBUG:   buf", buf, "=", name)
-        end
-      end
-    end
-    -- Test resolve
-    print("DEBUG: resolve test:")
-    print("DEBUG:   fnamemodify =", vim.fn.fnamemodify(repo.dir, ':p'))
-    print("DEBUG:   resolve =", vim.fn.resolve(vim.fn.fnamemodify(repo.dir, ':p')))
-    local clean = vim.fn.fnamemodify(repo.dir, ':p'):gsub('[/\\]$', '')
-    print("DEBUG:   glob =", vim.inspect(vim.fn.glob(clean, false, true)))
-
     _, modified_buf = lifecycle.get_buffers(tabpage)
     -- Wait for buffer content to actually contain expected text
     local content_ready = h.wait_for_buffer_content(modified_buf, "change A", 5000)
