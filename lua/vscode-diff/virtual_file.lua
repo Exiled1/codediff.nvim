@@ -84,9 +84,7 @@ end
 -- Supports commit hash or :0 (staged index)
 function M.create_url(git_root, commit, filepath)
   -- Normalize and encode components
-  -- Use :p to get full path
   local encoded_root = vim.fn.fnamemodify(git_root, ':p')
-  
   -- Remove trailing slashes (both / and \)
   encoded_root = encoded_root:gsub('[/\\]$', '')
   -- Normalize to forward slashes
