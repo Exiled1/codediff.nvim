@@ -737,8 +737,22 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
         vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
       end
     else
-      -- Existing buffer: just set it to window
-      vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+      -- Existing buffer: verify it's still valid (might have been deleted by rapid updates)
+      if vim.api.nvim_buf_is_valid(original_info.bufnr) then
+        vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+      else
+        -- Buffer was deleted, need to recreate
+        if original_is_virtual then
+          vim.api.nvim_set_current_win(original_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(original_info.target))
+          original_info.bufnr = vim.api.nvim_get_current_buf()
+        else
+          local bufnr = vim.fn.bufadd(original_info.target)
+          vim.fn.bufload(bufnr)
+          original_info.bufnr = bufnr
+          vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+        end
+      end
     end
   end
 
@@ -757,8 +771,22 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
         vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
       end
     else
-      -- Existing buffer: just set it to window
-      vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+      -- Existing buffer: verify it's still valid (might have been deleted by rapid updates)
+      if vim.api.nvim_buf_is_valid(modified_info.bufnr) then
+        vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+      else
+        -- Buffer was deleted, need to recreate
+        if modified_is_virtual then
+          vim.api.nvim_set_current_win(modified_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(modified_info.target))
+          modified_info.bufnr = vim.api.nvim_get_current_buf()
+        else
+          local bufnr = vim.fn.bufadd(modified_info.target)
+          vim.fn.bufload(bufnr)
+          modified_info.bufnr = bufnr
+          vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+        end
+      end
     end
   end
 
