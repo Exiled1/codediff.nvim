@@ -26,15 +26,22 @@ local function prepare_buffer(is_virtual, git_root, revision, path)
     -- Check if buffer already exists
     local existing_buf = vim.fn.bufnr(virtual_url)
     
-    if existing_buf ~= -1 then
+    -- For :0 (staged index), always force reload because index can change
+    -- when user runs git add/reset. For commits (immutable), we can cache.
+    local is_mutable_revision = revision == ":0" or revision == ":1" or revision == ":2" or revision == ":3"
+    
+    if existing_buf ~= -1 and not is_mutable_revision then
+       -- Buffer exists for immutable revision, reuse it
        return {
          bufnr = existing_buf,
          target = virtual_url,
-         needs_edit = true -- Always edit to force reload/switch
+         needs_edit = false
        }
     else
+       -- Either buffer doesn't exist, or it's a mutable revision that needs refresh
+       -- Don't delete here - let the :edit! handle it (will trigger BufReadCmd)
        return {
-         bufnr = nil,
+         bufnr = existing_buf ~= -1 and existing_buf or nil,
          target = virtual_url,
          needs_edit = true,
        }
@@ -716,6 +723,16 @@ function M.create(session_config, filetype, on_ready)
     
     -- Set up rendering after buffers are ready
     local render_everything = function()
+      -- Guard: Check if windows are still valid (they may have been closed during async wait)
+      if not vim.api.nvim_win_is_valid(original_win) or not vim.api.nvim_win_is_valid(modified_win) then
+        return
+      end
+      
+      -- Guard: Check if buffers are still valid
+      if not vim.api.nvim_buf_is_valid(original_info.bufnr) or not vim.api.nvim_buf_is_valid(modified_info.bufnr) then
+        return
+      end
+      
       -- Always read from buffers (single source of truth)
       local original_lines = vim.api.nvim_buf_get_lines(original_info.bufnr, 0, -1, false)
       local modified_lines = vim.api.nvim_buf_get_lines(modified_info.bufnr, 0, -1, false)
@@ -877,27 +894,35 @@ function M.create(session_config, filetype, on_ready)
 
   -- For explorer mode, create the explorer sidebar after diff windows are set up
   if session_config.mode == "explorer" and session_config.explorer_data then
-    -- Calculate explorer width: 20% of terminal width or 40 columns, whichever is smaller (matches neo-tree default)
-    local total_width = vim.o.columns
-    local explorer_width = math.min(40, math.floor(total_width * 0.2))
-    
-    -- Create explorer in left sidebar (explorer manages its own lifecycle and callbacks)
+    -- Get explorer position from config
+    local explorer_config = config.options.explorer or {}
+    local position = explorer_config.position or "left"
+
+    -- Create explorer (explorer manages its own lifecycle and callbacks)
     local explorer = require('vscode-diff.render.explorer')
     local status_result = session_config.explorer_data.status_result
-    
-    local explorer_obj = explorer.create(status_result, session_config.git_root, tabpage, explorer_width, session_config.original_revision, session_config.modified_revision)
-    
+
+    local explorer_obj = explorer.create(status_result, session_config.git_root, tabpage, nil, session_config.original_revision, session_config.modified_revision)
+
     -- Store explorer reference in lifecycle
     lifecycle.set_explorer(tabpage, explorer_obj)
-    
+
     -- Note: Keymaps will be set when first file is selected via update()
-    
-    -- After explorer is created, adjust diff window widths to be equal
-    local remaining_width = total_width - explorer_width
-    local diff_width = math.floor(remaining_width / 2)
-    
-    vim.api.nvim_win_set_width(original_win, diff_width)
-    vim.api.nvim_win_set_width(modified_win, diff_width)
+
+    -- Adjust diff window sizes based on explorer position
+    if position == "bottom" then
+      -- For bottom position, diff windows take full width, equalize them
+      vim.cmd('wincmd =')
+    else
+      -- For left position, calculate remaining width and split equally
+      local total_width = vim.o.columns
+      local explorer_width = explorer_config.width or 40
+      local remaining_width = total_width - explorer_width
+      local diff_width = math.floor(remaining_width / 2)
+
+      vim.api.nvim_win_set_width(original_win, diff_width)
+      vim.api.nvim_win_set_width(modified_win, diff_width)
+    end
   end
 
   return {
@@ -938,6 +963,10 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
   -- Clear highlights from old buffers (before they're replaced/deleted)
   lifecycle.clear_highlights(old_original_buf)
   lifecycle.clear_highlights(old_modified_buf)
+  
+  -- Clear stored_diff_result to signal that an update is in progress
+  -- This allows wait_for_session_ready to detect pending updates
+  lifecycle.update_diff_result(tabpage, nil)
 
   -- Handle result window when switching between conflict and non-conflict modes
   local old_result_bufnr, old_result_win = lifecycle.get_result(tabpage)
@@ -966,90 +995,6 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
     session_config.modified_path
   )
 
-  -- CRITICAL: If the buffer we want to load already exists and is displayed in OTHER diff window,
-  -- we need to replace that window's buffer FIRST before :edit, otherwise :edit will reuse it
-  -- This fixes the bug where same file in staged+unstaged shows same buffer in both windows
-  
-  local buffers_to_delete = {}
-  
-  -- Check if original window's target buffer is currently in modified window
-  if original_info.needs_edit then
-    local existing = vim.fn.bufnr(original_info.target)
-    if existing ~= -1 and existing == old_modified_buf then
-      -- Replace modified window with empty buffer first
-      if vim.api.nvim_win_is_valid(modified_win) then
-        vim.api.nvim_set_current_win(modified_win)
-        vim.cmd("enew")
-        table.insert(buffers_to_delete, old_modified_buf)
-        old_modified_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
-      end
-    end
-  end
-  
-  -- Check if modified window's target buffer is currently in original window
-  if modified_info.needs_edit then
-    local existing = vim.fn.bufnr(modified_info.target)
-    if existing ~= -1 and existing == old_original_buf then
-      -- Replace original window with empty buffer first
-      if vim.api.nvim_win_is_valid(original_win) then
-        vim.api.nvim_set_current_win(original_win)
-        vim.cmd("enew")
-        table.insert(buffers_to_delete, old_original_buf)
-        old_original_buf = vim.api.nvim_get_current_buf()  -- Update to new empty buffer
-      end
-    end
-  end
-
-  -- Now load buffers - :edit will create fresh buffers since we replaced conflicting ones
-  if vim.api.nvim_win_is_valid(original_win) then
-    vim.api.nvim_set_current_win(original_win)
-    if original_info.needs_edit then
-      -- Force reload for virtual files to ensure fresh content (fixes stale :0 index)
-      local cmd = original_is_virtual and "edit! " or "edit "
-      vim.cmd(cmd .. vim.fn.fnameescape(original_info.target))
-      original_info.bufnr = vim.api.nvim_get_current_buf()
-    else
-      vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
-    end
-  end
-
-  if vim.api.nvim_win_is_valid(modified_win) then
-    vim.api.nvim_set_current_win(modified_win)
-    if modified_info.needs_edit then
-      -- Force reload for virtual files to ensure fresh content
-      local cmd = modified_is_virtual and "edit! " or "edit "
-      vim.cmd(cmd .. vim.fn.fnameescape(modified_info.target))
-      modified_info.bufnr = vim.api.nvim_get_current_buf()
-    else
-      vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
-    end
-  end
-  
-  -- Delete the old buffers we replaced (after windows have new content)
-  for _, buf in ipairs(buffers_to_delete) do
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
-  end
-
-  -- Update lifecycle session metadata
-  lifecycle.update_paths(tabpage, session_config.original_path, session_config.modified_path)
-
-  -- Delete old virtual buffers if they were virtual AND are not reused in either new window
-  if lifecycle.is_original_virtual(tabpage) and 
-     old_original_buf ~= original_info.bufnr and 
-     old_original_buf ~= modified_info.bufnr then
-    pcall(vim.api.nvim_buf_delete, old_original_buf, { force = true })
-  end
-  
-  if lifecycle.is_modified_virtual(tabpage) and 
-     old_modified_buf ~= modified_info.bufnr and 
-     old_modified_buf ~= original_info.bufnr then
-    pcall(vim.api.nvim_buf_delete, old_modified_buf, { force = true })
-  end
-
-  -- Update session with new buffer/window IDs
-  -- Note: We need to update lifecycle to support this, or recreate session
-  -- For now, we'll update the stored diff result and metadata
-
   -- Determine if we need to wait for virtual file content
   -- Since we force reload virtual files, we always wait for the load event
   -- Use a state table to avoid closure capture issues in autocmd
@@ -1059,6 +1004,16 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
   }
 
   local render_everything = function()
+    -- Guard: Check if windows are still valid (they may have been closed during async wait)
+    if not vim.api.nvim_win_is_valid(original_win) or not vim.api.nvim_win_is_valid(modified_win) then
+      return
+    end
+    
+    -- Guard: Check if buffers are still valid
+    if not vim.api.nvim_buf_is_valid(original_info.bufnr) or not vim.api.nvim_buf_is_valid(modified_info.bufnr) then
+      return
+    end
+    
     -- Always read from buffers (single source of truth)
     local original_lines = vim.api.nvim_buf_get_lines(original_info.bufnr, 0, -1, false)
     local modified_lines = vim.api.nvim_buf_get_lines(modified_info.bufnr, 0, -1, false)
@@ -1145,13 +1100,14 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
     end
   end
 
-  -- Choose timing based on buffer types
+  -- Set up autocmd to wait for virtual file loads BEFORE triggering any async operations
+  -- This prevents race conditions where fast systems complete before the listener is ready
+  local autocmd_group = nil
   if wait_state.original or wait_state.modified then
-    -- Virtual file(s): Wait for BufReadCmd to load content
-    local group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileUpdate_' .. tabpage, { clear = true })
+    autocmd_group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileUpdate_' .. tabpage, { clear = true })
 
     vim.api.nvim_create_autocmd('User', {
-      group = group,
+      group = autocmd_group,
       pattern = 'VscodeDiffVirtualFileLoaded',
       callback = function(event)
         if not event.data or not event.data.buf then return end
@@ -1169,11 +1125,135 @@ function M.update(tabpage, session_config, auto_scroll_to_first_hunk)
         -- Render once all waited buffers are ready
         if not wait_state.original and not wait_state.modified then
           vim.schedule(render_everything)
-          vim.api.nvim_del_augroup_by_id(group)
+          vim.api.nvim_del_augroup_by_id(autocmd_group)
         end
       end,
     })
-  else
+  end
+
+  -- Load buffers into windows
+  -- For existing buffers: use nvim_win_set_buf() directly (no conflicts, no temp buffers needed)
+  -- For new virtual files: use :edit! to trigger BufReadCmd for content loading
+  -- For new real files: use bufadd + bufload + nvim_win_set_buf
+  
+  if vim.api.nvim_win_is_valid(original_win) then
+    if original_info.needs_edit then
+      if original_is_virtual then
+        -- For virtual files with mutable revisions (:0, :1, :2, :3)
+        -- Check if buffer already exists and just needs content refresh
+        if original_info.bufnr and vim.api.nvim_buf_is_valid(original_info.bufnr) then
+          -- Buffer exists, just refresh its content (for mutable revisions)
+          vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+          virtual_file.refresh_buffer(original_info.bufnr)
+        else
+          -- Buffer doesn't exist, create it with :edit!
+          vim.api.nvim_set_current_win(original_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(original_info.target))
+          original_info.bufnr = vim.api.nvim_get_current_buf()
+        end
+      else
+        -- New real file: create and load buffer
+        local bufnr = vim.fn.bufadd(original_info.target)
+        vim.fn.bufload(bufnr)
+        original_info.bufnr = bufnr
+        vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+      end
+    else
+      -- Existing buffer: verify it's still valid (might have been deleted by rapid updates)
+      if vim.api.nvim_buf_is_valid(original_info.bufnr) then
+        vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+        -- For real files, reload from disk in case it changed
+        if not original_is_virtual then
+          vim.api.nvim_buf_call(original_info.bufnr, function()
+            vim.cmd("silent! edit!")
+          end)
+        end
+      else
+        -- Buffer was deleted, need to recreate
+        if original_is_virtual then
+          vim.api.nvim_set_current_win(original_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(original_info.target))
+          original_info.bufnr = vim.api.nvim_get_current_buf()
+        else
+          local bufnr = vim.fn.bufadd(original_info.target)
+          vim.fn.bufload(bufnr)
+          original_info.bufnr = bufnr
+          vim.api.nvim_win_set_buf(original_win, original_info.bufnr)
+        end
+      end
+    end
+  end
+
+  if vim.api.nvim_win_is_valid(modified_win) then
+    if modified_info.needs_edit then
+      if modified_is_virtual then
+        -- For virtual files with mutable revisions (:0, :1, :2, :3)
+        -- Check if buffer already exists and just needs content refresh
+        if modified_info.bufnr and vim.api.nvim_buf_is_valid(modified_info.bufnr) then
+          -- Buffer exists, just refresh its content (for mutable revisions)
+          vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+          virtual_file.refresh_buffer(modified_info.bufnr)
+        else
+          -- Buffer doesn't exist, create it with :edit!
+          vim.api.nvim_set_current_win(modified_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(modified_info.target))
+          modified_info.bufnr = vim.api.nvim_get_current_buf()
+        end
+      else
+        -- New real file: create and load buffer
+        local bufnr = vim.fn.bufadd(modified_info.target)
+        vim.fn.bufload(bufnr)
+        modified_info.bufnr = bufnr
+        vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+      end
+    else
+      -- Existing buffer: verify it's still valid (might have been deleted by rapid updates)
+      if vim.api.nvim_buf_is_valid(modified_info.bufnr) then
+        vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+        -- For real files, reload from disk in case it changed
+        if not modified_is_virtual then
+          vim.api.nvim_buf_call(modified_info.bufnr, function()
+            vim.cmd("silent! edit!")
+          end)
+        end
+      else
+        -- Buffer was deleted, need to recreate
+        if modified_is_virtual then
+          vim.api.nvim_set_current_win(modified_win)
+          vim.cmd("edit! " .. vim.fn.fnameescape(modified_info.target))
+          modified_info.bufnr = vim.api.nvim_get_current_buf()
+        else
+          local bufnr = vim.fn.bufadd(modified_info.target)
+          vim.fn.bufload(bufnr)
+          modified_info.bufnr = bufnr
+          vim.api.nvim_win_set_buf(modified_win, modified_info.bufnr)
+        end
+      end
+    end
+  end
+
+  -- Update lifecycle session metadata
+  lifecycle.update_paths(tabpage, session_config.original_path, session_config.modified_path)
+
+  -- Delete old virtual buffers if they were virtual AND are not reused in either new window
+  if lifecycle.is_original_virtual(tabpage) and 
+     old_original_buf ~= original_info.bufnr and 
+     old_original_buf ~= modified_info.bufnr then
+    pcall(vim.api.nvim_buf_delete, old_original_buf, { force = true })
+  end
+  
+  if lifecycle.is_modified_virtual(tabpage) and 
+     old_modified_buf ~= modified_info.bufnr and 
+     old_modified_buf ~= original_info.bufnr then
+    pcall(vim.api.nvim_buf_delete, old_modified_buf, { force = true })
+  end
+
+  -- Update session with new buffer/window IDs
+  -- Note: We need to update lifecycle to support this, or recreate session
+  -- For now, we'll update the stored diff result and metadata
+
+  -- If no virtual files need loading, render immediately
+  if not autocmd_group then
     -- Real files or reused virtual files: Defer until :edit completes
     vim.schedule(render_everything)
   end

@@ -26,6 +26,13 @@ M.defaults = {
     hide_merge_artifacts = false,  -- Hide merge tool temp files (*.orig, *.BACKUP.*, *.BASE.*, *.LOCAL.*, *.REMOTE.*)
   },
 
+  -- Explorer panel configuration
+  explorer = {
+    position = "left",  -- "left" or "bottom"
+    width = 40,         -- Width when position is "left" (columns)
+    height = 15,        -- Height when position is "bottom" (lines)
+  },
+
   -- Keymaps
   keymaps = {
     view = {
