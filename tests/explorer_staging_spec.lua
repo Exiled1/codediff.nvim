@@ -169,6 +169,30 @@ describe("Explorer Buffer Management", function()
     ready = h.wait_for_session_ready(tabpage)
     assert.is_true(ready, "Session should be ready after switching to staged view")
 
+    -- Debug: Check what buffers we have
+    local orig_buf, mod_buf = lifecycle.get_buffers(tabpage)
+    print("DEBUG: After switching to staged view")
+    print("DEBUG: orig_buf =", orig_buf, "valid =", orig_buf and vim.api.nvim_buf_is_valid(orig_buf))
+    print("DEBUG: mod_buf =", mod_buf, "valid =", mod_buf and vim.api.nvim_buf_is_valid(mod_buf))
+    if orig_buf and vim.api.nvim_buf_is_valid(orig_buf) then
+      print("DEBUG: orig_buf name =", vim.api.nvim_buf_get_name(orig_buf))
+      print("DEBUG: orig_buf content =", table.concat(vim.api.nvim_buf_get_lines(orig_buf, 0, -1, false), '|'))
+    end
+    if mod_buf and vim.api.nvim_buf_is_valid(mod_buf) then
+      print("DEBUG: mod_buf name =", vim.api.nvim_buf_get_name(mod_buf))
+      print("DEBUG: mod_buf content =", table.concat(vim.api.nvim_buf_get_lines(mod_buf, 0, -1, false), '|'))
+    end
+    -- List all buffers
+    print("DEBUG: All buffers:")
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_valid(buf) then
+        local name = vim.api.nvim_buf_get_name(buf)
+        if name:find("vscodediff") or name:find("test.txt") then
+          print("DEBUG:   buf", buf, "=", name)
+        end
+      end
+    end
+
     _, modified_buf = lifecycle.get_buffers(tabpage)
     -- Wait for buffer content to actually contain expected text
     local content_ready = h.wait_for_buffer_content(modified_buf, "change A", 5000)
