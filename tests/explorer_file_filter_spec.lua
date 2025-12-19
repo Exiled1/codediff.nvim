@@ -1,11 +1,11 @@
 -- Test: Explorer File Filter
 -- Validates glob pattern matching for file filtering in explorer
 
-local explorer = require("vscode-diff.render.explorer")
+local filter = require("vscode-diff.render.explorer.filter")
 
--- Use exported internal functions
-local glob_to_pattern = explorer._glob_to_pattern
-local matches_any_pattern = explorer._matches_any_pattern
+-- Use filter module functions
+local glob_to_pattern = filter.glob_to_pattern
+local matches_any_pattern = filter.matches_any_pattern
 
 describe("Explorer File Filter", function()
   describe("glob_to_pattern", function()
