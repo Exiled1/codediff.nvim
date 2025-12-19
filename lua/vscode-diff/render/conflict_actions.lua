@@ -36,11 +36,12 @@ end
 --- @param block table The conflict block
 --- @return boolean is_active
 local function is_block_active(session, block)
-  if not block.extmark_id then return false end
+  if not block.extmark_id then return true end  -- Default to active if no tracking
   
   -- 1. Get current content from buffer via Extmark
   local mark = vim.api.nvim_buf_get_extmark_by_id(session.result_bufnr, tracking_ns, block.extmark_id, { details = true })
-  if not mark or #mark == 0 then return false end
+  if not mark or #mark == 0 then return true end  -- Default to active if extmark invalid
+  if not mark[3] or mark[3].end_row == nil then return true end  -- Default to active if details missing
   
   local start_row = mark[1]
   local end_row = mark[3].end_row
@@ -49,7 +50,7 @@ local function is_block_active(session, block)
   
   -- 2. Get expected base content from session
   local base_lines = session.result_base_lines
-  if not base_lines then return false end
+  if not base_lines then return true end  -- Default to active if no base lines
   
   local expected_lines = {}
   -- base_range is 1-based, inclusive-exclusive logic?
@@ -254,6 +255,34 @@ function M.refresh_all_conflict_signs(session)
   
   local highlights = require('vscode-diff.render.highlights')
   local ns_conflict = highlights.ns_conflict
+  
+  -- Check if extmarks need re-initialization (e.g., after undo to original state)
+  -- If any extmark is missing or invalid, re-initialize all tracking
+  local needs_reinit = false
+  for _, block in ipairs(session.conflict_blocks) do
+    if not block.extmark_id then
+      needs_reinit = true
+      break
+    end
+    local mark = vim.api.nvim_buf_get_extmark_by_id(session.result_bufnr, tracking_ns, block.extmark_id, { details = true })
+    if not mark or #mark < 3 or not mark[3] then
+      needs_reinit = true
+      break
+    end
+    -- Check if extmark position is reasonable (not spanning entire buffer or starting at 0 when it shouldn't)
+    local mark_start = mark[1]
+    local mark_end = mark[3].end_row
+    local expected_start = block.base_range.start_line - 1
+    -- If extmark start moved to 0 but expected start is not 0, it's corrupted (common after undo/redo)
+    if mark_start == 0 and expected_start > 0 then
+      needs_reinit = true
+      break
+    end
+  end
+  
+  if needs_reinit and session.result_bufnr and vim.api.nvim_buf_is_valid(session.result_bufnr) then
+    M.initialize_tracking(session.result_bufnr, session.conflict_blocks)
+  end
   
   -- Helper to set signs for a buffer range (for non-empty ranges)
   local function set_signs_for_range(bufnr, start_line, end_line, namespace, hl_group, is_active)
