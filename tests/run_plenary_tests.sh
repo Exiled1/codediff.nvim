@@ -25,6 +25,7 @@ FAILED=0
 
 # Test files
 SPEC_FILES=(
+  "tests/lazy_spec.lua"
   "tests/ffi_integration_spec.lua"
   "tests/installer_spec.lua"
   "tests/timeout_spec.lua"
