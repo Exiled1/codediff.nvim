@@ -135,7 +135,7 @@ end
 -- @return boolean: true if session is ready
 function M.wait_for_session_ready(tabpage, timeout_ms)
   timeout_ms = timeout_ms or 10000
-  local lifecycle = require('vscode-diff.ui.lifecycle')
+  local lifecycle = require('codediff.ui.lifecycle')
   
   return vim.wait(timeout_ms, function()
     local session = lifecycle.get_session(tabpage)

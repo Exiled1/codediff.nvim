@@ -1,8 +1,8 @@
 -- Test: Installer Module
 -- Validates automatic binary installation and version management
 
-local installer = require('vscode-diff.core.installer')
-local version = require("vscode-diff.version")
+local installer = require('codediff.core.installer')
+local version = require("codediff.version")
 
 describe("Installer Module", function()
   -- Test 1: Module loads correctly
@@ -278,7 +278,7 @@ describe("Installer Module", function()
         return
       end
       
-      local version_mod = require("vscode-diff.version")
+      local version_mod = require("codediff.version")
       local version = version_mod.VERSION
       
       -- Check expected naming convention for libgomp downloads

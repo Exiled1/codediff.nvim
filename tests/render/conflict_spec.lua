@@ -1,5 +1,5 @@
-local conflict = require('vscode-diff.ui.conflict')
-local lifecycle = require('vscode-diff.ui.lifecycle')
+local conflict = require('codediff.ui.conflict')
+local lifecycle = require('codediff.ui.lifecycle')
 local assert = require('luassert')
 
 describe("Conflict Actions with Extmark Tracking", function()

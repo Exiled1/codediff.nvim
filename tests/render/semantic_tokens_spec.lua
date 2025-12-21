@@ -4,7 +4,7 @@
 describe("Semantic Tokens Rendering", function()
   -- Test 1: Module loads without errors
   it("Module loads successfully", function()
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     assert.is_not_nil(semantic, "Module should load")
     assert.equal("function", type(semantic.apply_semantic_tokens), "Should export apply_semantic_tokens")
     assert.equal("function", type(semantic.clear), "Should export clear")
@@ -12,7 +12,7 @@ describe("Semantic Tokens Rendering", function()
 
   -- Test 2: Version compatibility check
   it("Version compatibility check works", function()
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     
     -- Should gracefully return false if no clients
     local result = semantic.apply_semantic_tokens(1, 1)
@@ -38,7 +38,7 @@ describe("Semantic Tokens Rendering", function()
 
   -- Test 4: Clear function works
   it("Clear function works without errors", function()
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     
     -- Create a test buffer
     local buf = vim.api.nvim_create_buf(false, true)
@@ -53,7 +53,7 @@ describe("Semantic Tokens Rendering", function()
 
   -- Test 5: Namespace is created correctly
   it("Semantic token namespace exists", function()
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     
     local namespaces = vim.api.nvim_get_namespaces()
     assert.is_not_nil(namespaces.vscode_diff_semantic_tokens, 
@@ -68,7 +68,7 @@ describe("Semantic Tokens Rendering", function()
       return
     end
     
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     
     -- Create test buffers
     local left_buf = vim.api.nvim_create_buf(false, true)
@@ -156,7 +156,7 @@ describe("Semantic Tokens Rendering", function()
 
   -- Test 10: Graceful handling of missing capabilities
   it("Handles missing semantic token capabilities", function()
-    local semantic = require("vscode-diff.ui.semantic_tokens")
+    local semantic = require("codediff.ui.semantic_tokens")
     
     -- Create buffers with no LSP client
     local left_buf = vim.api.nvim_create_buf(false, true)
@@ -173,7 +173,7 @@ describe("Semantic Tokens Rendering", function()
 
   -- Test 11: Virtual file URL creation and parsing
   it("Virtual file URL creation and parsing", function()
-    local virtual_file = require('vscode-diff.core.virtual_file')
+    local virtual_file = require('codediff.core.virtual_file')
     
     -- Test URL creation with actual hex commit hash (use platform-agnostic path)
     local git_root = vim.fn.has("win32") == 1 and "D:/project" or "/home/user/project"

@@ -1,7 +1,7 @@
 -- Test: Git Integration
 -- Validates git operations, error handling, and async callbacks
 
-local git = require('vscode-diff.core.git')
+local git = require('codediff.core.git')
 
 describe("Git Integration", function()
   -- Test 1: Detect non-git directory (async)

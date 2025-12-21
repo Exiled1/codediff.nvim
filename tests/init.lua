@@ -52,4 +52,4 @@ package.path = package.path .. ";" .. nui_dir .. "/lua/?.lua;" .. nui_dir .. "/l
 vim.cmd('runtime! plugin/*.lua plugin/*.vim')
 
 -- Setup plugin
-require("vscode-diff").setup()
+require("codediff").setup()

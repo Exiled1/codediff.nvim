@@ -1,7 +1,7 @@
 -- Test: Explorer File Filter
 -- Validates glob pattern matching for file filtering in explorer
 
-local filter = require("vscode-diff.ui.explorer.filter")
+local filter = require("codediff.ui.explorer.filter")
 
 -- Use filter module functions
 local glob_to_pattern = filter.glob_to_pattern

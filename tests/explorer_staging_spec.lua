@@ -30,7 +30,7 @@ describe("Explorer Buffer Management", function()
   end)
 
   it("should parse virtual file URLs correctly", function()
-    local virtual_file = require('vscode-diff.core.virtual_file')
+    local virtual_file = require('codediff.core.virtual_file')
 
     -- Use the actual repo.dir for cross-platform compatibility
     local normalized_dir = h.normalize_path(repo.dir)
@@ -58,7 +58,7 @@ describe("Explorer Buffer Management", function()
   end)
 
   it("should load virtual file content via BufReadCmd", function()
-    local virtual_file = require('vscode-diff.core.virtual_file')
+    local virtual_file = require('codediff.core.virtual_file')
 
     -- Listen for the loaded event
     local event_fired = false
@@ -97,8 +97,8 @@ describe("Explorer Buffer Management", function()
     -- 4. Stage change B -> validate Staged has A+B
     -- 5. Unstage file -> validate Changes has A+B
     
-    local view = require('vscode-diff.ui.view')
-    local lifecycle = require('vscode-diff.ui.lifecycle')
+    local view = require('codediff.ui.view')
+    local lifecycle = require('codediff.ui.lifecycle')
 
     -- Step 1: Make change A
     repo.write_file('test.txt', {'line 1', 'line 2', 'line 3', 'change A'})

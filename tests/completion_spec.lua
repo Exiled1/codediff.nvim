@@ -1,8 +1,8 @@
 -- Test: Command completion
 -- Validates :CodeDiff command completion with dynamic git refs
 
-local git = require('vscode-diff.core.git')
-local commands = require("vscode-diff.commands")
+local git = require('codediff.core.git')
+local commands = require("codediff.commands")
 
 describe("Command Completion", function()
   describe("git.get_git_root_sync", function()

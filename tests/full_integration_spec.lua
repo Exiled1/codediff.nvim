@@ -1,7 +1,7 @@
 -- Test: Full Integration
 -- Validates all supported commands documented in README.md
 
-local commands = require("vscode-diff.commands")
+local commands = require("codediff.commands")
 
 -- Setup CodeDiff command for tests
 local function setup_command()

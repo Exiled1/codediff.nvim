@@ -1,9 +1,9 @@
 -- Test: render/core.lua - Core diff rendering logic
 -- Critical tests for the heart of diff visualization
 
-local core = require("vscode-diff.ui.core")
-local highlights = require("vscode-diff.ui.highlights")
-local diff = require('vscode-diff.core.diff')
+local core = require("codediff.ui.core")
+local highlights = require("codediff.ui.highlights")
+local diff = require('codediff.core.diff')
 
 describe("Render Core", function()
   before_each(function()

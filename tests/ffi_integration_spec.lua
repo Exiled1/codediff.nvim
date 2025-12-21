@@ -1,7 +1,7 @@
 -- Test: FFI Integration
 -- Validates C <-> Lua boundary and data structure conversion
 
-local diff = require('vscode-diff.core.diff')
+local diff = require('codediff.core.diff')
 
 describe("FFI Integration", function()
   -- Test 1: Basic FFI call works

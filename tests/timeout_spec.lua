@@ -1,8 +1,8 @@
 -- Test: Timeout Mechanism
 -- Validates that timeout works correctly from Lua through to C Myers algorithm
 
-local diff = require('vscode-diff.core.diff')
-local config = require("vscode-diff.config")
+local diff = require('codediff.core.diff')
+local config = require("codediff.config")
 
 describe("Timeout Mechanism", function()
   -- Test files for consistent testing
