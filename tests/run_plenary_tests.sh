@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test runner for vscode-diff.nvim using plenary.nvim
+# Test runner for codediff.nvim using plenary.nvim
 
 set -e
 
@@ -14,7 +14,7 @@ NC='\033[0m'
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║          vscode-diff.nvim Test Suite (Plenary)               ║"
+echo "║          codediff.nvim Test Suite (Plenary)                  ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 

@@ -1,6 +1,6 @@
 # Test Suite
 
-Integration tests for vscode-diff.nvim using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim).
+Integration tests for codediff.nvim using [plenary.nvim](https://github.com/nvim-lua/plenary.nvim).
 
 ## Test Coverage
 

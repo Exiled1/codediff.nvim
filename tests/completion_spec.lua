@@ -10,7 +10,7 @@ describe("Command Completion", function()
       local cwd = vim.fn.getcwd()
       local root = git.get_git_root_sync(cwd)
 
-      -- We're running in the vscode-diff.nvim repo
+      -- We're running in the codediff.nvim repo
       if root then
         assert.equal("string", type(root))
         assert.equal(1, vim.fn.isdirectory(root))
