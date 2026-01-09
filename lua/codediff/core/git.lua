@@ -204,6 +204,28 @@ function M.get_git_root(file_path, callback)
   )
 end
 
+-- Get git directory path (handles worktrees correctly)
+-- git_root: absolute path to git repository root
+-- callback: function(err, git_dir)
+function M.get_git_dir(git_root, callback)
+  run_git_async(
+    { "rev-parse", "--git-dir" },
+    { cwd = git_root },
+    function(err, output)
+      if err then
+        callback("Failed to get git directory: " .. err, nil)
+      else
+        local git_dir = vim.trim(output)
+        -- Make absolute path if relative
+        if not git_dir:match('^/') and not git_dir:match('^%a:') then
+          git_dir = git_root .. '/' .. git_dir
+        end
+        callback(nil, git_dir)
+      end
+    end
+  )
+end
+
 -- Get relative path of file within git repository (sync, pure computation)
 function M.get_relative_path(file_path, git_root)
   local abs_path = vim.fn.fnamemodify(file_path, ":p")
