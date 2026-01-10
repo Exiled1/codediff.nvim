@@ -149,10 +149,9 @@ local function handle_dir_diff(dir1, dir2)
 end
 
 local function handle_explorer(revision, revision2)
-  -- Use current buffer's directory if available, otherwise use cwd
-  local current_buf = vim.api.nvim_get_current_buf()
-  local current_file = vim.api.nvim_buf_get_name(current_buf)
-  local check_path = current_file ~= "" and current_file or vim.fn.getcwd()
+  -- Always use current working directory for explorer mode
+  -- (user expects to see status of the repo they're working in, not the buffer's repo)
+  local check_path = vim.fn.getcwd()
 
   -- Check if in git repository
   git.get_git_root(check_path, function(err_root, git_root)
