@@ -86,6 +86,14 @@ M.defaults = {
       diffget_incoming = "2do", -- Get hunk from incoming (left/theirs) buffer
       diffget_current = "3do", -- Get hunk from current (right/ours) buffer
     },
+    -- merge_files navigation keymaps (for non-git 3-way merges)
+    merge_files = {
+      jump_to_result = "<C-w>r", -- Jump to result buffer
+      jump_to_local = "<C-w>l", -- Jump to local (current) buffer
+      jump_to_remote = "<C-w>h", -- Jump to remote (incoming) buffer
+      undo = "u", -- Undo in result buffer (from remote/local buffers)
+      redo = "<C-r>", -- Redo in result buffer (from remote/local buffers)
+    },
   },
 }
 

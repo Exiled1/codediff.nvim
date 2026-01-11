@@ -96,55 +96,68 @@ end
 ---@param local_win number Local window number
 ---@param result_win number Result window number
 local function setup_buffer_navigation_keymaps(remote_bufnr, local_bufnr, result_bufnr, remote_win, local_win, result_win)
+  local config = require("codediff.config")
+  local keymaps = config.options.keymaps.merge_files or {}
+
   local bufs = { remote_bufnr, local_bufnr, result_bufnr }
 
   -- Jump keymaps for all three buffers
   for _, bufnr in ipairs(bufs) do
     -- Jump to RESULT buffer
-    vim.keymap.set("n", "<C-w>r", function()
-      if vim.api.nvim_win_is_valid(result_win) then
-        vim.api.nvim_set_current_win(result_win)
-      end
-    end, { buffer = bufnr, desc = "Jump to result buffer", silent = true })
+    if keymaps.jump_to_result then
+      vim.keymap.set("n", keymaps.jump_to_result, function()
+        if vim.api.nvim_win_is_valid(result_win) then
+          vim.api.nvim_set_current_win(result_win)
+        end
+      end, { buffer = bufnr, desc = "Jump to result buffer", silent = true })
+    end
 
     -- Jump to LOCAL buffer (right)
-    vim.keymap.set("n", "<C-w>l", function()
-      if vim.api.nvim_win_is_valid(local_win) then
-        vim.api.nvim_set_current_win(local_win)
-      end
-    end, { buffer = bufnr, desc = "Jump to local buffer", silent = true })
+    if keymaps.jump_to_local then
+      vim.keymap.set("n", keymaps.jump_to_local, function()
+        if vim.api.nvim_win_is_valid(local_win) then
+          vim.api.nvim_set_current_win(local_win)
+        end
+      end, { buffer = bufnr, desc = "Jump to local buffer", silent = true })
+    end
 
     -- Jump to REMOTE buffer (left)
-    vim.keymap.set("n", "<C-w>h", function()
-      if vim.api.nvim_win_is_valid(remote_win) then
-        vim.api.nvim_set_current_win(remote_win)
-      end
-    end, { buffer = bufnr, desc = "Jump to remote buffer", silent = true })
+    if keymaps.jump_to_remote then
+      vim.keymap.set("n", keymaps.jump_to_remote, function()
+        if vim.api.nvim_win_is_valid(remote_win) then
+          vim.api.nvim_set_current_win(remote_win)
+        end
+      end, { buffer = bufnr, desc = "Jump to remote buffer", silent = true })
+    end
   end
 
   -- Undo/redo in RESULT buffer from REMOTE/LOCAL buffers
   for _, bufnr in ipairs({ remote_bufnr, local_bufnr }) do
-    vim.keymap.set("n", "u", function()
-      if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
-        local current_win = vim.api.nvim_get_current_win()
-        vim.api.nvim_set_current_win(result_win)
-        vim.cmd("undo")
-        if vim.api.nvim_win_is_valid(current_win) then
-          vim.api.nvim_set_current_win(current_win)
+    if keymaps.undo then
+      vim.keymap.set("n", keymaps.undo, function()
+        if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
+          local current_win = vim.api.nvim_get_current_win()
+          vim.api.nvim_set_current_win(result_win)
+          vim.cmd("undo")
+          if vim.api.nvim_win_is_valid(current_win) then
+            vim.api.nvim_set_current_win(current_win)
+          end
         end
-      end
-    end, { buffer = bufnr, desc = "Undo in result buffer", silent = true })
+      end, { buffer = bufnr, desc = "Undo in result buffer", silent = true })
+    end
 
-    vim.keymap.set("n", "<C-r>", function()
-      if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
-        local current_win = vim.api.nvim_get_current_win()
-        vim.api.nvim_set_current_win(result_win)
-        vim.cmd("redo")
-        if vim.api.nvim_win_is_valid(current_win) then
-          vim.api.nvim_set_current_win(current_win)
+    if keymaps.redo then
+      vim.keymap.set("n", keymaps.redo, function()
+        if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
+          local current_win = vim.api.nvim_get_current_win()
+          vim.api.nvim_set_current_win(result_win)
+          vim.cmd("redo")
+          if vim.api.nvim_win_is_valid(current_win) then
+            vim.api.nvim_set_current_win(current_win)
+          end
         end
-      end
-    end, { buffer = bufnr, desc = "Redo in result buffer", silent = true })
+      end, { buffer = bufnr, desc = "Redo in result buffer", silent = true })
+    end
   end
 end
 
