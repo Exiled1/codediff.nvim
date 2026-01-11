@@ -87,6 +87,67 @@ local function create_all_change_blocks(base_to_remote_diff, base_to_local_diff)
   return blocks
 end
 
+--- Set up buffer navigation keymaps for easier workflow
+--- Allows jumping between buffers and undo/redo from any buffer
+---@param remote_bufnr number Remote buffer number
+---@param local_bufnr number Local buffer number
+---@param result_bufnr number Result buffer number
+---@param remote_win number Remote window number
+---@param local_win number Local window number
+---@param result_win number Result window number
+local function setup_buffer_navigation_keymaps(remote_bufnr, local_bufnr, result_bufnr, remote_win, local_win, result_win)
+  local bufs = { remote_bufnr, local_bufnr, result_bufnr }
+
+  -- Jump keymaps for all three buffers
+  for _, bufnr in ipairs(bufs) do
+    -- Jump to RESULT buffer
+    vim.keymap.set("n", "<C-w>r", function()
+      if vim.api.nvim_win_is_valid(result_win) then
+        vim.api.nvim_set_current_win(result_win)
+      end
+    end, { buffer = bufnr, desc = "Jump to result buffer", silent = true })
+
+    -- Jump to LOCAL buffer (right)
+    vim.keymap.set("n", "<C-w>l", function()
+      if vim.api.nvim_win_is_valid(local_win) then
+        vim.api.nvim_set_current_win(local_win)
+      end
+    end, { buffer = bufnr, desc = "Jump to local buffer", silent = true })
+
+    -- Jump to REMOTE buffer (left)
+    vim.keymap.set("n", "<C-w>h", function()
+      if vim.api.nvim_win_is_valid(remote_win) then
+        vim.api.nvim_set_current_win(remote_win)
+      end
+    end, { buffer = bufnr, desc = "Jump to remote buffer", silent = true })
+  end
+
+  -- Undo/redo in RESULT buffer from REMOTE/LOCAL buffers
+  for _, bufnr in ipairs({ remote_bufnr, local_bufnr }) do
+    vim.keymap.set("n", "u", function()
+      if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
+        local current_win = vim.api.nvim_get_current_win()
+        vim.api.nvim_set_current_win(result_win)
+        vim.cmd("undo")
+        if vim.api.nvim_win_is_valid(current_win) then
+          vim.api.nvim_set_current_win(current_win)
+        end
+      end
+    end, { buffer = bufnr, desc = "Undo in result buffer", silent = true })
+
+    vim.keymap.set("n", "<C-r>", function()
+      if vim.api.nvim_win_is_valid(result_win) and vim.api.nvim_buf_is_valid(result_bufnr) then
+        local current_win = vim.api.nvim_get_current_win()
+        vim.api.nvim_set_current_win(result_win)
+        vim.cmd("redo")
+        if vim.api.nvim_win_is_valid(current_win) then
+          vim.api.nvim_set_current_win(current_win)
+        end
+      end
+    end, { buffer = bufnr, desc = "Redo in result buffer", silent = true })
+  end
+end
+
 --- Perform 3-way merge on arbitrary files (non-git)
 --- Creates a new tab with 3-way merge view:
 --- - Left: REMOTE (incoming) file
@@ -154,8 +215,8 @@ function M.merge_files(local_path, remote_path, base_path)
   local local_bufnr = vim.api.nvim_create_buf(false, true)
 
   -- Set descriptive buffer names
-  local remote_name = "merge://REMOTE/" .. vim.fn.fnamemodify(remote_path, ":t")
-  local local_name = "merge://LOCAL/" .. vim.fn.fnamemodify(local_path, ":t")
+  local remote_name = "merge://REMOTE/" .. vim.fn.fnamemodify(remote_path, ":t") .. " (incoming)"
+  local local_name = "merge://LOCAL/" .. vim.fn.fnamemodify(local_path, ":t") .. " (current)"
   vim.api.nvim_buf_set_name(remote_bufnr, remote_name)
   vim.api.nvim_buf_set_name(local_bufnr, local_name)
 
@@ -286,6 +347,9 @@ function M.merge_files(local_path, remote_path, base_path)
 
   -- Setup conflict resolution keymaps (accept incoming/current/both, etc.)
   conflict.setup_keymaps(tabpage)
+
+  -- Setup buffer navigation keymaps for better workflow
+  setup_buffer_navigation_keymaps(remote_bufnr, local_bufnr, result_bufnr, remote_win, local_win, result_win)
 
   -- 10. Set window options
   -- Disable wrap
