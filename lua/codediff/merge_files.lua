@@ -30,61 +30,79 @@ local function read_file_lines(path)
   return lines, nil
 end
 
---- Create reviewable blocks for ALL changes (not just conflicts)
---- Creates a block for every change on either side, merging overlapping changes
----@param base_to_remote_diff table Diff result from base to remote
----@param base_to_local_diff table Diff result from base to local
----@return table all_change_blocks Array of blocks for all changes
-local function create_all_change_blocks(base_to_remote_diff, base_to_local_diff)
-  local left_changes = base_to_remote_diff.changes or {}
-  local right_changes = base_to_local_diff.changes or {}
+--- Auto-apply non-conflicting changes to the result buffer
+--- Changes that are NOT in conflict blocks are automatically merged
+---@param result_bufnr number Result buffer number
+---@param base_to_remote_diff table Diff from base to remote
+---@param base_to_local_diff table Diff from base to local
+---@param conflict_blocks table Array of conflict blocks (true conflicts only)
+---@param base_lines table Base file content
+---@param remote_lines table Remote file content
+---@param local_lines table Local file content
+local function auto_apply_non_conflicts(result_bufnr, base_to_remote_diff, base_to_local_diff, conflict_blocks, base_lines, remote_lines, local_lines)
+  -- Build lookup table of conflict ranges for fast checking
+  local conflict_ranges = {}
+  for _, block in ipairs(conflict_blocks) do
+    table.insert(conflict_ranges, {
+      start_line = block.base_range.start_line,
+      end_line = block.base_range.end_line,
+    })
+  end
 
-  local blocks = {}
+  -- Helper: check if a change overlaps with any conflict
+  local function is_in_conflict(change)
+    for _, range in ipairs(conflict_ranges) do
+      if change.original.start_line <= range.end_line and change.original.end_line >= range.start_line then
+        return true
+      end
+    end
+    return false
+  end
 
-  -- Create a block for every LEFT (remote) change
-  for _, change in ipairs(left_changes) do
-    if change.original and change.modified then
-      table.insert(blocks, {
+  -- Collect all non-conflicting changes
+  local changes_to_apply = {}
+
+  -- Add remote (incoming) changes
+  for _, change in ipairs(base_to_remote_diff.changes or {}) do
+    if change.original and change.modified and not is_in_conflict(change) then
+      table.insert(changes_to_apply, {
         base_range = change.original,
-        output1_range = change.modified, -- LEFT changed
-        output2_range = change.original, -- RIGHT unchanged (maps to base)
-        inner1 = change.inner_changes or {},
-        inner2 = {},
+        new_lines = remote_lines,
+        new_range = change.modified,
+        source = "remote",
       })
     end
   end
 
-  -- Add blocks for RIGHT (local) changes
-  -- If a block already exists for the same base range (conflict), update it
-  -- Otherwise create a new block
-  for _, change in ipairs(right_changes) do
-    if change.original and change.modified then
-      -- Check if we already have a block for this base range (true conflict)
-      local found_conflict = false
-      for _, block in ipairs(blocks) do
-        if block.base_range.start_line == change.original.start_line and block.base_range.end_line == change.original.end_line then
-          -- Update existing block: this is a true conflict (both sides changed same base)
-          block.output2_range = change.modified
-          block.inner2 = change.inner_changes or {}
-          found_conflict = true
-          break
-        end
-      end
-
-      if not found_conflict then
-        -- New block: only RIGHT changed
-        table.insert(blocks, {
-          base_range = change.original,
-          output1_range = change.original, -- LEFT unchanged
-          output2_range = change.modified, -- RIGHT changed
-          inner1 = {},
-          inner2 = change.inner_changes or {},
-        })
-      end
+  -- Add local (current) changes
+  for _, change in ipairs(base_to_local_diff.changes or {}) do
+    if change.original and change.modified and not is_in_conflict(change) then
+      table.insert(changes_to_apply, {
+        base_range = change.original,
+        new_lines = local_lines,
+        new_range = change.modified,
+        source = "local",
+      })
     end
   end
 
-  return blocks
+  -- Sort changes by base line position (bottom to top to avoid line shifts)
+  table.sort(changes_to_apply, function(a, b)
+    return a.base_range.start_line > b.base_range.start_line
+  end)
+
+  -- Apply changes to result buffer
+  -- Note: buffer is already modifiable (caller ensures this)
+  for _, change in ipairs(changes_to_apply) do
+    local start_idx = change.base_range.start_line - 1
+    local end_idx = change.base_range.end_line
+    local new_lines = {}
+    for i = change.new_range.start_line, change.new_range.end_line do
+      table.insert(new_lines, change.new_lines[i])
+    end
+    vim.api.nvim_buf_set_lines(result_bufnr, start_idx, end_idx, false, new_lines)
+  end
+  -- Keep buffer modifiable so user can continue editing
 end
 
 --- Set up buffer navigation keymaps for easier workflow
@@ -288,9 +306,9 @@ function M.merge_files(local_path, remote_path, base_path)
     local_lines
   )
 
-  -- Create blocks for ALL changes (not just conflicts)
-  -- This allows navigation to any change, not just overlapping changes
-  local all_change_blocks = create_all_change_blocks(base_to_remote_diff, base_to_local_diff)
+  -- Use conflict blocks from render_merge_view (only true conflicts)
+  -- Non-conflicting changes will be auto-applied to result buffer
+  local conflict_blocks = render_result.conflict_blocks or {}
 
   -- 7. Create result window (bottom split)
   vim.api.nvim_set_current_win(local_win)
@@ -307,12 +325,16 @@ function M.merge_files(local_path, remote_path, base_path)
 
   -- Reset content to BASE (required for conflict tracking to work)
   -- The conflict blocks are positioned relative to BASE content
+  vim.bo[result_bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(result_bufnr, 0, -1, false, base_lines)
   vim.bo[result_bufnr].modified = true
 
   if filetype ~= "" then
     vim.bo[result_bufnr].filetype = filetype
   end
+
+  -- Auto-apply non-conflicting changes to result buffer
+  auto_apply_non_conflicts(result_bufnr, base_to_remote_diff, base_to_local_diff, conflict_blocks, base_lines, remote_lines, local_lines)
 
   -- 8. Create lifecycle session
   local lifecycle = require("codediff.ui.lifecycle")
@@ -334,7 +356,7 @@ function M.merge_files(local_path, remote_path, base_path)
   -- Set result buffer info in session
   lifecycle.set_result(tabpage, result_bufnr, result_win)
   lifecycle.set_result_base_lines(tabpage, base_lines)
-  lifecycle.set_conflict_blocks(tabpage, all_change_blocks)
+  lifecycle.set_conflict_blocks(tabpage, conflict_blocks)
 
   -- Track conflict file for unsaved warnings
   lifecycle.track_conflict_file(tabpage, local_path)
@@ -343,7 +365,7 @@ function M.merge_files(local_path, remote_path, base_path)
   local conflict = require("codediff.ui.conflict")
 
   -- Initialize extmark-based conflict tracking
-  conflict.initialize_tracking(result_bufnr, all_change_blocks)
+  conflict.initialize_tracking(result_bufnr, conflict_blocks)
 
   -- Setup auto-refresh of conflict signs on buffer changes
   conflict.setup_sign_refresh_autocmd(tabpage, result_bufnr)
@@ -401,7 +423,7 @@ function M.merge_files(local_path, remote_path, base_path)
     remote_win = remote_win,
     local_win = local_win,
     result_win = result_win,
-    conflict_blocks = all_change_blocks,
+    conflict_blocks = conflict_blocks,
   }
 end
 
