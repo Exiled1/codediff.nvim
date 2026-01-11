@@ -30,6 +30,63 @@ local function read_file_lines(path)
   return lines, nil
 end
 
+--- Create reviewable blocks for ALL changes (not just conflicts)
+--- Creates a block for every change on either side, merging overlapping changes
+---@param base_to_remote_diff table Diff result from base to remote
+---@param base_to_local_diff table Diff result from base to local
+---@return table all_change_blocks Array of blocks for all changes
+local function create_all_change_blocks(base_to_remote_diff, base_to_local_diff)
+  local left_changes = base_to_remote_diff.changes or {}
+  local right_changes = base_to_local_diff.changes or {}
+
+  local blocks = {}
+
+  -- Create a block for every LEFT (remote) change
+  for _, change in ipairs(left_changes) do
+    if change.original and change.modified then
+      table.insert(blocks, {
+        base_range = change.original,
+        output1_range = change.modified, -- LEFT changed
+        output2_range = change.original, -- RIGHT unchanged (maps to base)
+        inner1 = change.inner_changes or {},
+        inner2 = {},
+      })
+    end
+  end
+
+  -- Add blocks for RIGHT (local) changes
+  -- If a block already exists for the same base range (conflict), update it
+  -- Otherwise create a new block
+  for _, change in ipairs(right_changes) do
+    if change.original and change.modified then
+      -- Check if we already have a block for this base range (true conflict)
+      local found_conflict = false
+      for _, block in ipairs(blocks) do
+        if block.base_range.start_line == change.original.start_line and block.base_range.end_line == change.original.end_line then
+          -- Update existing block: this is a true conflict (both sides changed same base)
+          block.output2_range = change.modified
+          block.inner2 = change.inner_changes or {}
+          found_conflict = true
+          break
+        end
+      end
+
+      if not found_conflict then
+        -- New block: only RIGHT changed
+        table.insert(blocks, {
+          base_range = change.original,
+          output1_range = change.original, -- LEFT unchanged
+          output2_range = change.modified, -- RIGHT changed
+          inner1 = {},
+          inner2 = change.inner_changes or {},
+        })
+      end
+    end
+  end
+
+  return blocks
+end
+
 --- Perform 3-way merge on arbitrary files (non-git)
 --- Creates a new tab with 3-way merge view:
 --- - Left: REMOTE (incoming) file
@@ -157,6 +214,10 @@ function M.merge_files(local_path, remote_path, base_path)
     local_lines
   )
 
+  -- Create blocks for ALL changes (not just conflicts)
+  -- This allows navigation to any change, not just overlapping changes
+  local all_change_blocks = create_all_change_blocks(base_to_remote_diff, base_to_local_diff)
+
   -- 7. Create result window (bottom split)
   vim.api.nvim_set_current_win(local_win)
   vim.cmd("belowright split " .. vim.fn.fnameescape(local_path))
@@ -199,7 +260,7 @@ function M.merge_files(local_path, remote_path, base_path)
   -- Set result buffer info in session
   lifecycle.set_result(tabpage, result_bufnr, result_win)
   lifecycle.set_result_base_lines(tabpage, base_lines)
-  lifecycle.set_conflict_blocks(tabpage, render_result.conflict_blocks)
+  lifecycle.set_conflict_blocks(tabpage, all_change_blocks)
 
   -- Track conflict file for unsaved warnings
   lifecycle.track_conflict_file(tabpage, local_path)
@@ -208,7 +269,7 @@ function M.merge_files(local_path, remote_path, base_path)
   local conflict = require("codediff.ui.conflict")
 
   -- Initialize extmark-based conflict tracking
-  conflict.initialize_tracking(result_bufnr, render_result.conflict_blocks)
+  conflict.initialize_tracking(result_bufnr, all_change_blocks)
 
   -- Setup auto-refresh of conflict signs on buffer changes
   conflict.setup_sign_refresh_autocmd(tabpage, result_bufnr)
@@ -263,7 +324,7 @@ function M.merge_files(local_path, remote_path, base_path)
     remote_win = remote_win,
     local_win = local_win,
     result_win = result_win,
-    conflict_blocks = render_result.conflict_blocks,
+    conflict_blocks = all_change_blocks,
   }
 end
 
